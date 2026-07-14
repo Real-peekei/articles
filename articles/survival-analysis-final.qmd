@@ -2,7 +2,7 @@
 title: "Cox Proportional Hazards Modeling in a Simulated Oncology Trial"
 author: "Peekei"
 date: "2026-07-13"
-description: "Fitting and validating a Cox PH model on a simulated two-arm oncology trial — unadjusted vs. adjusted hazard ratios, proportional hazards diagnostics, martingale residuals for functional form, and concordance."
+description: "An R-based biostatistics deep dive: fitting and validating a Cox PH model on a simulated two-arm oncology trial — unadjusted vs. adjusted hazard ratios, proportional hazards diagnostics, martingale residuals for functional form, and concordance."
 categories: [Biostatistics, Survival Analysis, RStats, Clinical Trials]
 format:
   html:

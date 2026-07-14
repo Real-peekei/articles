@@ -11,4 +11,4 @@ page-layout: full
 title-block-banner: false
 ---
 
-Worked examples in biostatistics, bioinformatics, and computational biology — Cox models, Bayesian hierarchical methods, epidemic modeling, multi-omics integration, and whatever comes next. Each article is a full reproducible analysis: simulated or public data, R code, diagnostics, and an honest read of what the numbers do and don't support.
+Worked examples spanning biostatistics, bioinformatics, computational biology, and machine learning — Cox models, Bayesian hierarchical methods, epidemic modeling, multi-omics integration, and whatever comes next. Analyses run in both R and Python depending on what the problem calls for, not a fixed toolkit. Each article is a full reproducible analysis: simulated or public data, code, diagnostics, and an honest read of what the numbers do and don't support.
