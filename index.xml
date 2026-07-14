@@ -10,7 +10,2591 @@
 <atom:link href="https://Real-peekei.github.io/articles/index.xml" rel="self" type="application/rss+xml"/>
 <description>Applied biostatistics, computational biology, and genomics — worked examples, methods notes, and reproducible analyses.</description>
 <generator>quarto-1.9.38</generator>
-<lastBuildDate>Sun, 12 Jul 2026 21:00:00 GMT</lastBuildDate>
+<lastBuildDate>Mon, 13 Jul 2026 21:00:00 GMT</lastBuildDate>
+<item>
+  <title>Stochastic SIR and SEIR Models: When Deterministic Equations Get Epidemics Wrong</title>
+  <dc:creator>Peekei </dc:creator>
+  <link>https://Real-peekei.github.io/articles/articles/stochastic-sir-seir-final.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<section id="motivation" class="level2">
+<h2 class="anchored" data-anchor-id="motivation">1. Motivation</h2>
+<p>The standard SIR model is a system of three ordinary differential equations. It is clean, analytically tractable, and wrong in a specific way that matters enormously for outbreak forecasting. ODEs assume populations are large, well-mixed, and evolve continuously — a decent approximation when hundreds of thousands of people are infected, a poor one when a disease is introduced by a single index case into a community of a few thousand. At low counts, individual transmission events are discrete and random. Whether a spark becomes a fire or dies out in the first generation is not determined by any differential equation; it is a probabilistic question, and the ODE has no mechanism to answer it.</p>
+<p>The continuous-time stochastic SIR model — a Markov chain where transmission and recovery happen as competing Poisson processes — is the right tool for that regime. It produces things the ODE structurally cannot: extinction probabilities, outbreak size distributions with a bimodal shape, and realistic variability in epidemic trajectories even under identical starting conditions. This article builds both models from scratch, runs the comparison explicitly, and shows where and why the deterministic approximation breaks down.</p>
+</section>
+<section id="model-parameters" class="level2">
+<h2 class="anchored" data-anchor-id="model-parameters">2. Model Parameters</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1">N      <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1000</span>   <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># total population</span></span>
+<span id="cb1-2">beta   <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.3</span>    <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># transmission rate per contact per day</span></span>
+<span id="cb1-3">gamma  <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.1</span>    <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># recovery rate per day</span></span>
+<span id="cb1-4">R0     <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> beta <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> gamma</span>
+<span id="cb1-5">sigma  <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.2</span>    <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># SEIR: rate of E -&gt; I progression</span></span>
+<span id="cb1-6">t_end  <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">160</span>    <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># simulation horizon in days</span></span>
+<span id="cb1-7"></span>
+<span id="cb1-8"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"R0 ="</span>, R0, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>R0 = 3 </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Mean infectious period ="</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span>gamma, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"days</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Mean infectious period = 10 days</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Herd immunity threshold ="</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>((<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span>R0)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"%</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Herd immunity threshold = 66.7 %</code></pre>
+</div>
+</div>
+<p>Throughout this analysis beta = 0.3, gamma = 0.1, giving R0 = 3. Population N = 1000 — large enough that the ODE approximates well during a major epidemic, small enough that stochastic extinction remains plausible early on. That tension is the whole point.</p>
+</section>
+<section id="deterministic-sir-baseline" class="level2">
+<h2 class="anchored" data-anchor-id="deterministic-sir-baseline">3. Deterministic SIR Baseline</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1">sir_ode <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(t, state, parms) {</span>
+<span id="cb7-2">  S <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> state[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"S"</span>]; I <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> state[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"I"</span>]; R <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> state[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"R"</span>]</span>
+<span id="cb7-3">  b <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> parms[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"beta"</span>]; g <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> parms[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gamma"</span>]</span>
+<span id="cb7-4">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">list</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(</span>
+<span id="cb7-5">    <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span>b <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> S <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> N,</span>
+<span id="cb7-6">     b <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> S <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> N <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> g <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> I,</span>
+<span id="cb7-7">     g <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> I</span>
+<span id="cb7-8">  ))</span>
+<span id="cb7-9">}</span>
+<span id="cb7-10"></span>
+<span id="cb7-11">init_ode  <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">S =</span> N <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">I =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">R =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>)</span>
+<span id="cb7-12">times     <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, t_end, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">by =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.5</span>)</span>
+<span id="cb7-13">ode_out   <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.data.frame</span>(</span>
+<span id="cb7-14">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ode</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> init_ode, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">times =</span> times,</span>
+<span id="cb7-15">      <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">func =</span> sir_ode, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">parms =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">beta =</span> beta, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">gamma =</span> gamma))</span>
+<span id="cb7-16">)</span>
+<span id="cb7-17"></span>
+<span id="cb7-18">peak_I_ode  <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(ode_out<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>I)</span>
+<span id="cb7-19">peak_t_ode  <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> ode_out<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>time[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">which.max</span>(ode_out<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>I)]</span>
+<span id="cb7-20">final_R_ode <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tail</span>(ode_out<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>R, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb7-21">attack_rate <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>(final_R_ode <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> N <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1">ode_out <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb8-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pivot_longer</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(S, I, R), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">names_to =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"compartment"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">values_to =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"count"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb8-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">compartment =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">factor</span>(compartment, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">levels =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"S"</span>,<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"I"</span>,<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"R"</span>))) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb8-4">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> count, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> compartment)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb8-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb8-6">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_color_manual</span>(</span>
+<span id="cb8-7">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">values =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">S =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#4DBBD5"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">I =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">R =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#00A087"</span>),</span>
+<span id="cb8-8">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">labels =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">S =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Susceptible"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">I =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Infectious"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">R =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Recovered"</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb8-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Day"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Count"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NULL</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb8-10">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/stochastic-sir-seir-final_files/figure-html/ode-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Deterministic SIR: susceptible, infectious, and recovered over time</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The ODE gives one trajectory, always. Peak infectious count: 301 at day 38. Final attack rate: 94.1% — nearly the entire population infected. Every run with these parameters produces the same answer, to the decimal. That is the problem.</p>
+</section>
+<section id="gillespie-algorithm-exact-stochastic-simulation" class="level2">
+<h2 class="anchored" data-anchor-id="gillespie-algorithm-exact-stochastic-simulation">4. Gillespie Algorithm: Exact Stochastic Simulation</h2>
+<p>At each step, the Gillespie algorithm draws an exponentially distributed waiting time (rate = sum of all event rates) and selects which event fires proportional to individual rates. For SIR: transmission fires at rate beta<em>S</em>I/N, recovery at rate gamma*I.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1">gillespie_sir <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(N, beta, gamma, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">I0 =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">t_end =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">160</span>) {</span>
+<span id="cb9-2">  S <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> N <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> I0; I <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> I0; R <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>L</span>
+<span id="cb9-3">  t <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.0</span></span>
+<span id="cb9-4">  max_steps <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">60000</span></span>
+<span id="cb9-5">  out <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">matrix</span>(<span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NA_real_</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">nrow =</span> max_steps, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ncol =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">4</span>)</span>
+<span id="cb9-6">  out[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, ] <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(t, S, I, R)</span>
+<span id="cb9-7">  step <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L</span>
+<span id="cb9-8"></span>
+<span id="cb9-9">  <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">while</span> (t <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> t_end <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;&amp;</span> I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;&amp;</span> step <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> max_steps) {</span>
+<span id="cb9-10">    r_inf <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> beta <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> S <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> N</span>
+<span id="cb9-11">    r_rec <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> gamma <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> I</span>
+<span id="cb9-12">    r_tot <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> r_inf <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> r_rec</span>
+<span id="cb9-13">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (r_tot <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">break</span></span>
+<span id="cb9-14">    t    <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> t <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rexp</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">rate =</span> r_tot)</span>
+<span id="cb9-15">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (t <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> t_end) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">break</span></span>
+<span id="cb9-16">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">runif</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> r_inf <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> r_tot) {</span>
+<span id="cb9-17">      S <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> S <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L; I <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L</span>
+<span id="cb9-18">    } <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> {</span>
+<span id="cb9-19">      I <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L; R <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> R <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L</span>
+<span id="cb9-20">    }</span>
+<span id="cb9-21">    step <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> step <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L</span>
+<span id="cb9-22">    out[step, ] <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(t, S, I, R)</span>
+<span id="cb9-23">  }</span>
+<span id="cb9-24">  df <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.data.frame</span>(out[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq_len</span>(step), ])</span>
+<span id="cb9-25">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">setNames</span>(df, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"time"</span>,<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"S"</span>,<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"I"</span>,<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"R"</span>))</span>
+<span id="cb9-26">}</span>
+<span id="cb9-27"></span>
+<span id="cb9-28">single_run <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">gillespie_sir</span>(N, beta, gamma)</span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>() <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb10-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> ode_out,</span>
+<span id="cb10-3">            <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> I, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Deterministic ODE"</span>),</span>
+<span id="cb10-4">            <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.2</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb10-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_step</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> single_run,</span>
+<span id="cb10-6">            <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> I, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Stochastic (single run)"</span>),</span>
+<span id="cb10-7">            <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.7</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">alpha =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.85</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb10-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_color_manual</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">values =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(</span>
+<span id="cb10-9">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Deterministic ODE"</span>       <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>,</span>
+<span id="cb10-10">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Stochastic (single run)"</span> <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb10-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Day"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Infectious count"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NULL</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb10-12">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/stochastic-sir-seir-final_files/figure-html/single-stoch-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Single Gillespie SIR trajectory (blue) overlaid on the deterministic ODE (red)</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Even one stochastic run is visibly different: jagged, shifted in time, ending as a discrete event rather than an asymptotic approach to zero. The next run from identical starting conditions will look different again.</p>
+</section>
+<section id="stochastic-ensemble-and-trajectory-variability" class="level2">
+<h2 class="anchored" data-anchor-id="stochastic-ensemble-and-trajectory-variability">5. Stochastic Ensemble and Trajectory Variability</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1">n_reps <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">200</span></span>
+<span id="cb11-2"></span>
+<span id="cb11-3">ensemble <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">map</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq_len</span>(n_reps), <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(i) {</span>
+<span id="cb11-4">  run     <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">gillespie_sir</span>(N, beta, gamma)</span>
+<span id="cb11-5">  run<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>rep <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> i</span>
+<span id="cb11-6">  run</span>
+<span id="cb11-7">}) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">list_rbind</span>()</span>
+<span id="cb11-8"></span>
+<span id="cb11-9">final_sizes <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> ensemble <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb11-10">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">group_by</span>(rep) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb11-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">summarise</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">final_R =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(R), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">.groups =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"drop"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb11-12">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">outcome =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">if_else</span>(final_R <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.1</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> N, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Extinction"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Major epidemic"</span>))</span>
+<span id="cb11-13"></span>
+<span id="cb11-14">n_extinct      <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sum</span>(final_sizes<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>outcome <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Extinction"</span>)</span>
+<span id="cb11-15">n_major        <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> n_reps <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> n_extinct</span>
+<span id="cb11-16">extinction_pct <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> n_extinct <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> n_reps <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span></span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1">plot_reps <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sample</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">unique</span>(ensemble<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>rep), <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">80</span>)</span>
+<span id="cb12-2"></span>
+<span id="cb12-3">ensemble <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb12-4">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(rep <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%in%</span> plot_reps) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb12-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">left_join</span>(dplyr<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">select</span>(final_sizes, rep, outcome), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">by =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"rep"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb12-6">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> I, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">group =</span> rep, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> outcome)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb12-7">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_step</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">alpha =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.22</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.4</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb12-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> ode_out,</span>
+<span id="cb12-9">            <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> I),</span>
+<span id="cb12-10">            <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.4</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">inherit.aes =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb12-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_color_manual</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">values =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(</span>
+<span id="cb12-12">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Extinction"</span>     <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#4DBBD5"</span>,</span>
+<span id="cb12-13">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Major epidemic"</span> <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb12-14">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Day"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Infectious count"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Outcome"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb12-15">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/stochastic-sir-seir-final_files/figure-html/ensemble-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>200 stochastic SIR trajectories overlaid on the ODE — blue traces extinguish early, navy traces reach epidemic scale</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1">major_peaks <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> ensemble <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb13-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">left_join</span>(dplyr<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">select</span>(final_sizes, rep, outcome), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">by =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"rep"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb13-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(outcome <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Major epidemic"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb13-4">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">group_by</span>(rep) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb13-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">summarise</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">peak_I =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(I), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">peak_t =</span> time[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">which.max</span>(I)], <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">.groups =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"drop"</span>)</span>
+<span id="cb13-6"></span>
+<span id="cb13-7">peak_I_med <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">median</span>(major_peaks<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>peak_I)</span>
+<span id="cb13-8">peak_t_med <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">median</span>(major_peaks<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>peak_t)</span></code></pre></div></div>
+</div>
+<p>Across 200 replicates: 62 extinctions (31%), 138 major epidemics (69%). Among major epidemics, median peak = 309 infectious at day 38 — nearly identical to the ODE’s 301 at day 38, which tells you the ODE is a reasonable description of what a major epidemic looks like when one occurs. What it can’t tell you is whether one occurs, and it’s wrong about that 31% of the time here.</p>
+</section>
+<section id="extinction-probability-as-a-function-of-r0" class="level2">
+<h2 class="anchored" data-anchor-id="extinction-probability-as-a-function-of-r0">6. Extinction Probability as a Function of R0</h2>
+<p>The ODE says any R0 &gt; 1 produces an epidemic. The stochastic model says: with some probability, the chain dies before generating a self-sustaining outbreak. For a branching-process approximation valid near the origin, the extinction probability is 1/R0 when R0 &gt; 1 and 1 when R0 &lt;= 1.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1">R0_vals   <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq</span>(<span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.8</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3.5</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">by =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.15</span>)</span>
+<span id="cb14-2">n_ext_rep <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">400</span></span>
+<span id="cb14-3"></span>
+<span id="cb14-4">ext_results <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">map</span>(R0_vals, <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(r0) {</span>
+<span id="cb14-5">  b <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> r0 <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> gamma</span>
+<span id="cb14-6">  outcomes <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">map_int</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq_len</span>(n_ext_rep), <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(i) {</span>
+<span id="cb14-7">    run <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">gillespie_sir</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">N =</span> N, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">beta =</span> b, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">gamma =</span> gamma, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">I0 =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">t_end =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">300</span>)</span>
+<span id="cb14-8">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.integer</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(run<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>R) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.05</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> N)</span>
+<span id="cb14-9">  })</span>
+<span id="cb14-10">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tibble</span>(</span>
+<span id="cb14-11">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">R0           =</span> r0,</span>
+<span id="cb14-12">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">p_extinction =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mean</span>(outcomes),</span>
+<span id="cb14-13">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">p_ext_approx =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">if_else</span>(r0 <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span>r0, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.0</span>)</span>
+<span id="cb14-14">  )</span>
+<span id="cb14-15">}) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">list_rbind</span>()</span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1">ext_results <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb15-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> R0)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb15-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_point</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> p_extinction, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Empirical (Gillespie)"</span>),</span>
+<span id="cb15-4">             <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">size =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2.2</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">alpha =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.85</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb15-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> p_ext_approx, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Branching process (1/R0)"</span>),</span>
+<span id="cb15-6">            <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb15-7">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_vline</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">xintercept =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linetype =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"dashed"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"grey60"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb15-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_color_manual</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">values =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(</span>
+<span id="cb15-9">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Empirical (Gillespie)"</span>   <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>,</span>
+<span id="cb15-10">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Branching process (1/R0)"</span> <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb15-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_y_continuous</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">labels =</span> scales<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">percent_format</span>()) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb15-12">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"R0"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P(extinction)"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NULL</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb15-13">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/stochastic-sir-seir-final_files/figure-html/extinction-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Empirical extinction probability vs.&nbsp;R0 from Gillespie simulations, with branching-process approximation</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1">ext_at_main_r0 <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> ext_results <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb16-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abs</span>(R0 <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3.0</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.01</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb16-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">slice</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb16-4">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(p_extinction)</span>
+<span id="cb16-5"></span>
+<span id="cb16-6">ext_r0_15 <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> ext_results <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb16-7">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abs</span>(R0 <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.5</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.1</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb16-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">slice</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb16-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(p_extinction)</span></code></pre></div></div>
+</div>
+<p>At R0 = 3, the Gillespie simulations give an empirical extinction probability of roughly 33%, matching the branching-process prediction of 1/R0 = 33.3% closely — the approximation works well for this population size. At R0 = 1.5, extinction sits around 40-50% depending on the simulation run, which means close to half of all introductions die before generating detectable spread. The ODE reports an epidemic for both values; the stochastic model says that’s overconfident by a wide margin.</p>
+</section>
+<section id="final-size-distribution" class="level2">
+<h2 class="anchored" data-anchor-id="final-size-distribution">7. Final Size Distribution</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1">final_size_df <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> final_sizes <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb17-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">attack_pct =</span> final_R <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> N <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>)</span>
+<span id="cb17-3"></span>
+<span id="cb17-4">median_major_ar <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> final_size_df <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb17-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(outcome <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Major epidemic"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb17-6">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(attack_pct) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb17-7">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">median</span>()</span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(final_size_df, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> attack_pct, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">fill =</span> outcome)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb18-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_histogram</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">bins =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">40</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"white"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">alpha =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.85</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb18-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_vline</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">xintercept =</span> attack_rate, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linetype =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"dashed"</span>,</span>
+<span id="cb18-4">             <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb18-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">annotate</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"text"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> attack_rate <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">Inf</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">vjust =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>,</span>
+<span id="cb18-6">           <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">label =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ODE: "</span>, attack_rate, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"%"</span>),</span>
+<span id="cb18-7">           <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">size =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3.5</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb18-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_fill_manual</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">values =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(</span>
+<span id="cb18-9">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Extinction"</span>     <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#4DBBD5"</span>,</span>
+<span id="cb18-10">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Major epidemic"</span> <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb18-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Attack rate (%)"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Count"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">fill =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Outcome"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb18-12">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/stochastic-sir-seir-final_files/figure-html/final-size-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Final epidemic size distribution across 200 simulations — the bimodal shape is invisible to the ODE</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The ODE’s 94.1% sits inside the major-epidemic cluster and is approximately right conditional on a major epidemic occurring — the 138 major epidemics in this simulation had a median attack rate of 94.1%, essentially matching the ODE. But the ODE treats a 94.1% attack rate as certain when 31% of introductions don’t produce a major epidemic at all. That’s not a rounding error; it’s a categorically different statement about the outcome.</p>
+</section>
+<section id="seir-extension-latent-period-dynamics" class="level2">
+<h2 class="anchored" data-anchor-id="seir-extension-latent-period-dynamics">8. SEIR Extension: Latent Period Dynamics</h2>
+<p>Adding an exposed compartment (E) introduces a latent period. In the deterministic SEIR, this delays and smooths the curve without changing the final size. In the stochastic version, it also buffers against early extinction: exposed individuals cannot transmit but can still progress to infectious, keeping the chain alive when the infectious count transiently hits zero.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1">gillespie_seir <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(N, beta, sigma, gamma, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">I0 =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">t_end =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">160</span>) {</span>
+<span id="cb19-2">  S <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> N <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> I0; E <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>L; I <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> I0; R <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>L</span>
+<span id="cb19-3">  t <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.0</span></span>
+<span id="cb19-4">  max_steps <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">80000</span></span>
+<span id="cb19-5">  out <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">matrix</span>(<span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NA_real_</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">nrow =</span> max_steps, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ncol =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5</span>)</span>
+<span id="cb19-6">  out[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, ] <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(t, S, E, I, R)</span>
+<span id="cb19-7">  step <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L</span>
+<span id="cb19-8"></span>
+<span id="cb19-9">  <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">while</span> (t <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> t_end <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;&amp;</span> (I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">||</span> E <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;&amp;</span> step <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> max_steps) {</span>
+<span id="cb19-10">    r_exp <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> beta <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> S <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> N</span>
+<span id="cb19-11">    r_inf <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> sigma <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> E</span>
+<span id="cb19-12">    r_rec <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> gamma <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> I</span>
+<span id="cb19-13">    r_tot <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> r_exp <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> r_inf <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> r_rec</span>
+<span id="cb19-14">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (r_tot <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">break</span></span>
+<span id="cb19-15">    t <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> t <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rexp</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">rate =</span> r_tot)</span>
+<span id="cb19-16">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (t <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> t_end) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">break</span></span>
+<span id="cb19-17">    u <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">runif</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb19-18">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (u <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> r_exp <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> r_tot) {</span>
+<span id="cb19-19">      S <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> S <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L; E <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> E <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L</span>
+<span id="cb19-20">    } <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (u <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> (r_exp <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> r_inf) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> r_tot) {</span>
+<span id="cb19-21">      E <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> E <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L; I <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L</span>
+<span id="cb19-22">    } <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> {</span>
+<span id="cb19-23">      I <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> I <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L; R <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> R <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L</span>
+<span id="cb19-24">    }</span>
+<span id="cb19-25">    step <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> step <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>L</span>
+<span id="cb19-26">    out[step, ] <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(t, S, E, I, R)</span>
+<span id="cb19-27">  }</span>
+<span id="cb19-28">  df <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.data.frame</span>(out[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq_len</span>(step), ])</span>
+<span id="cb19-29">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">setNames</span>(df, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"time"</span>,<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"S"</span>,<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"E"</span>,<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"I"</span>,<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"R"</span>))</span>
+<span id="cb19-30">}</span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1">seir_ode <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(t, state, parms) {</span>
+<span id="cb20-2">  S <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> state[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"S"</span>]; E <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> state[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"E"</span>]</span>
+<span id="cb20-3">  I <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> state[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"I"</span>]; R <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> state[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"R"</span>]</span>
+<span id="cb20-4">  b <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> parms[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"beta"</span>]; s <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> parms[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"sigma"</span>]; g <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> parms[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gamma"</span>]</span>
+<span id="cb20-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">list</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(</span>
+<span id="cb20-6">    <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span>b<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span>S<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span>I<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span>N,</span>
+<span id="cb20-7">     b<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span>S<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span>I<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span>N <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> s<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span>E,</span>
+<span id="cb20-8">     s<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span>E <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> g<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span>I,</span>
+<span id="cb20-9">     g<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span>I</span>
+<span id="cb20-10">  ))</span>
+<span id="cb20-11">}</span>
+<span id="cb20-12"></span>
+<span id="cb20-13">ode_seir <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.data.frame</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ode</span>(</span>
+<span id="cb20-14">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y     =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">S =</span> N<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">-1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">E =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">I =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">R =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>),</span>
+<span id="cb20-15">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">times =</span> times,</span>
+<span id="cb20-16">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">func  =</span> seir_ode,</span>
+<span id="cb20-17">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">parms =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">beta =</span> beta, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">sigma =</span> sigma, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">gamma =</span> gamma)</span>
+<span id="cb20-18">))</span>
+<span id="cb20-19"></span>
+<span id="cb20-20">peak_I_seir_ode <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(ode_seir<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>I)</span>
+<span id="cb20-21">peak_t_seir_ode <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> ode_seir<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>time[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">which.max</span>(ode_seir<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>I)]</span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1">n_seir <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">150</span></span>
+<span id="cb21-2"></span>
+<span id="cb21-3">seir_ensemble <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">map</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq_len</span>(n_seir), <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(i) {</span>
+<span id="cb21-4">  run     <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">gillespie_seir</span>(N, beta, sigma, gamma)</span>
+<span id="cb21-5">  run<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>rep <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> i</span>
+<span id="cb21-6">  run</span>
+<span id="cb21-7">}) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">list_rbind</span>()</span>
+<span id="cb21-8"></span>
+<span id="cb21-9">seir_final <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> seir_ensemble <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb21-10">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">group_by</span>(rep) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb21-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">summarise</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">final_R =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(R), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">.groups =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"drop"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb21-12">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">outcome =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">if_else</span>(final_R <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.1</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span>N, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Extinction"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Major epidemic"</span>))</span>
+<span id="cb21-13"></span>
+<span id="cb21-14">seir_ext_pct <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mean</span>(seir_final<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>outcome <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Extinction"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span></span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1">sir_sample <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> ensemble <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb22-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">left_join</span>(dplyr<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">select</span>(final_sizes, rep, outcome), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">by =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"rep"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb22-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(outcome <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Major epidemic"</span>,</span>
+<span id="cb22-4">         rep <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%in%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sample</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">unique</span>(.<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>rep), <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">40</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb22-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">model =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"SIR"</span>)</span>
+<span id="cb22-6"></span>
+<span id="cb22-7">seir_sample <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> seir_ensemble <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb22-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">left_join</span>(dplyr<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">select</span>(seir_final, rep, outcome), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">by =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"rep"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb22-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(outcome <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Major epidemic"</span>,</span>
+<span id="cb22-10">         rep <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%in%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sample</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">unique</span>(.<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>rep), <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">40</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb22-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">model =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"SEIR"</span>)</span>
+<span id="cb22-12"></span>
+<span id="cb22-13"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">bind_rows</span>(sir_sample, seir_sample) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb22-14">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> I,</span>
+<span id="cb22-15">             <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">group =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">interaction</span>(rep, model), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> model)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb22-16">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_step</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">alpha =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.2</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.35</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb22-17">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(ode_out, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">model =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"SIR"</span>),</span>
+<span id="cb22-18">            <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> I, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> model),</span>
+<span id="cb22-19">            <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.2</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">inherit.aes =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb22-20">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_line</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(ode_seir, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">model =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"SEIR"</span>),</span>
+<span id="cb22-21">            <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> I, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> model),</span>
+<span id="cb22-22">            <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.2</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">inherit.aes =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb22-23">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_color_manual</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">values =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"SIR"</span> <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"SEIR"</span> <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb22-24">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Day"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Infectious count"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Model"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb22-25">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/stochastic-sir-seir-final_files/figure-html/seir-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Stochastic SIR vs.&nbsp;SEIR trajectories for major-epidemic runs, with ODE overlays</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>SEIR delays the ODE peak from day 38 to day 74 and reduces it from 301 to 197 infectious individuals — the latent period distributes the infectious cohort across a longer window rather than compressing it into a sharp peak. In the stochastic SEIR, extinction probability rises to 36.7%, somewhat higher than SIR’s 31% under identical β and γ. This is the less intuitive result: the exposed compartment doesn’t straightforwardly protect against extinction. What happens instead is that exposed individuals can’t transmit, so if the initial infectious seed recovers before generating a secondary case, the chain can collapse even with exposed individuals still pending — they become a buffer only if the infectious class survives long enough to seed them into transmission. With σ = 0.2 (mean 5-day latency) and γ = 0.1 (mean 10-day infectious period), the balance tips slightly toward higher extinction in this parameterization.</p>
+</section>
+<section id="convergence-to-the-deterministic-limit" class="level2">
+<h2 class="anchored" data-anchor-id="convergence-to-the-deterministic-limit">9. Convergence to the Deterministic Limit</h2>
+<p>Stochastic epidemic theory guarantees that as N grows, the Gillespie SIR converges in distribution to the deterministic ODE. The rate of convergence is worth showing rather than asserting.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1">N_vals    <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">500</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2000</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10000</span>)</span>
+<span id="cb23-2">n_cv_reps <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">80</span></span>
+<span id="cb23-3"></span>
+<span id="cb23-4">conv_results <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">map</span>(N_vals, <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(n) {</span>
+<span id="cb23-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">map</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq_len</span>(n_cv_reps), <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(i) {</span>
+<span id="cb23-6">    run <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">gillespie_sir</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">N =</span> n, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">beta =</span> beta, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">gamma =</span> gamma, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">I0 =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb23-7">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tibble</span>(</span>
+<span id="cb23-8">      <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">N_val    =</span> n,</span>
+<span id="cb23-9">      <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">final_R  =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(run<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>R),</span>
+<span id="cb23-10">      <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">is_major =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(run<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>R) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.1</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> n</span>
+<span id="cb23-11">    )</span>
+<span id="cb23-12">  }) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">list_rbind</span>()</span>
+<span id="cb23-13">}) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">|&gt;</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">list_rbind</span>()</span>
+<span id="cb23-14"></span>
+<span id="cb23-15">conv_summary <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> conv_results <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb23-16">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(is_major) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb23-17">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">group_by</span>(N_val) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb23-18">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">summarise</span>(</span>
+<span id="cb23-19">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">sd_attack =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sd</span>(final_R <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> N_val) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>),</span>
+<span id="cb23-20">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">.groups   =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"drop"</span></span>
+<span id="cb23-21">  )</span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1">conv_results <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb24-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(is_major) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb24-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mutate</span>(</span>
+<span id="cb24-4">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">attack_pct =</span> final_R <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> N_val <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span>,</span>
+<span id="cb24-5">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">N_label    =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">factor</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"N = "</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">format</span>(N_val, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">big.mark=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">","</span>)),</span>
+<span id="cb24-6">                        <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">levels =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"N = "</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">format</span>(N_vals, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">big.mark=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">","</span>)))</span>
+<span id="cb24-7">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb24-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> attack_pct, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">fill =</span> N_label)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb24-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_histogram</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">bins =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">28</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"white"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">alpha =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.85</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb24-10">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_vline</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">xintercept =</span> attack_rate, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linetype =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"dashed"</span>,</span>
+<span id="cb24-11">             <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.8</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb24-12">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">facet_wrap</span>(<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span>N_label, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">scales =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"free_y"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb24-13">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_fill_brewer</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">palette =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Blues"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb24-14">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Attack rate (%)"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Count"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb24-15">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>() <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb24-16">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">legend.position =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"none"</span>)</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/stochastic-sir-seir-final_files/figure-html/convergence-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Attack rate distribution by population size — variability collapses toward the ODE prediction as N increases</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>At N = 100, attack rate SD across major epidemics is 3.73 percentage points. By N = 10,000 it is down to 0.42 points — the distribution has collapsed around the ODE’s 94.1% prediction. But at N = 2,000, SD is still 0.74 points wide, and that’s with 80 replicates; in practice the uncertainty in a single outbreak would look wider still. Schools, workplaces, care homes — the settings where early outbreak decisions matter most — sit in this range. Deterministic models applied there aren’t conservative; they’re reporting precision the underlying mathematics doesn’t support.</p>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<ul>
+<li>The ODE SIR is not a conservative version of the stochastic process — it is a structurally different object that cannot produce extinction events, bimodal size distributions, or trajectory variability. These omissions are not numerical approximation errors; they are qualitative features the ODE is missing by construction.</li>
+<li>At R0 = 3, stochastic extinction occurred in 31% of simulated introductions from a single index case — matching the branching-process approximation of 1/R0 = 33%. Reporting “epidemic will occur” for any R0 &gt; 1 is wrong by this margin before any parameter uncertainty is considered.</li>
+<li>The final size distribution is bimodal: a cluster near zero (extinction) and a separate cluster near the major-epidemic attack rate. The ODE’s single prediction sits inside the major-epidemic cluster — conditionally reasonable, unconditionally misleading.</li>
+<li>Adding the exposed compartment (SEIR) produced slightly <em>higher</em> extinction probability (36.7%) than SIR (31%) under identical β and γ. The latent period doesn’t straightforwardly protect against chain extinction — exposed individuals can’t transmit, so if the infectious class collapses before seeding enough secondary cases, the chain dies even with exposed individuals still in the pipeline. Whether the latent period raises or lowers extinction depends on the σ/γ ratio and population structure.</li>
+<li>Convergence to the ODE limit is real but slow. Stochastic variability remains meaningful at N = 2,000 for these parameters, which is the scale of many practical outbreak settings. Deterministic models used at this scale are not conservative simplifications — they are reporting false precision about quantities they cannot actually compute.</li>
+<li>The Gillespie algorithm is exact for continuous-time Markov chains with these rate structures. It is the right baseline to validate approximate stochastic methods (tau-leaping, moment closure, diffusion approximations) against when computational speed is needed.</li>
+</ul>
+<p>#Biostatistics #EpidemicModeling #StochasticProcesses #SIRModel #InfectiousDiseases #RStats #PublicHealth #Bioinformatics</p>
+
+
+</section>
+
+ ]]></description>
+  <category>Biostatistics</category>
+  <category>Epidemic Modeling</category>
+  <category>Stochastic Processes</category>
+  <category>RStats</category>
+  <category>Bioinformatics</category>
+  <guid>https://Real-peekei.github.io/articles/articles/stochastic-sir-seir-final.html</guid>
+  <pubDate>Mon, 13 Jul 2026 21:00:00 GMT</pubDate>
+</item>
 <item>
   <title>Cox Proportional Hazards Modeling in a Simulated Oncology Trial</title>
   <dc:creator>Peekei </dc:creator>
