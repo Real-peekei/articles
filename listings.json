@@ -2,6 +2,7 @@
   {
     "listing": "/index.html",
     "items": [
+      "/articles/multiomics-final.html",
       "/articles/stochastic-sir-seir-final.html",
       "/articles/survival-analysis-final.html"
     ]

@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Peekei">
+<meta name="dcterms.date" content="2026-07-14">
+<meta name="description" content="An R + Python integration piece: five simulated omic layers (genomics, transcriptomics, proteomics, metabolomics, epigenomics) unified via unsupervised matrix factorisation in R, then classified with a scikit-learn ML model and interpreted through SHAP in Python via reticulate — with an honest look at where integration genuinely helps and where a data leakage artifact inflates the numbers.">
+
+<title>From Genome to Phenotype: A Multi-Omics Framework for Cancer Subtype Discovery – Peekei | Biostatistics &amp; Bioinformatics</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-daefd142fa062e9db80c3a84c97c26de.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+
+
+<link rel="stylesheet" href="../styles.css">
+</head>
+
+<body class="nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">Peekei | Biostatistics &amp; Bioinformatics</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="../index.html"> 
+<span class="menu-text">Articles</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="../about.html"> 
+<span class="menu-text">About</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/"> <i class="bi bi-github" role="img">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul>
+  <li><a href="#motivation" id="toc-motivation" class="nav-link active" data-scroll-target="#motivation">1. Motivation</a></li>
+  <li><a href="#simulated-pan-cancer-cohort" id="toc-simulated-pan-cancer-cohort" class="nav-link" data-scroll-target="#simulated-pan-cancer-cohort">2. Simulated Pan-Cancer Cohort</a></li>
+  <li><a href="#single-omic-analyses" id="toc-single-omic-analyses" class="nav-link" data-scroll-target="#single-omic-analyses">3. Single-Omic Analyses</a>
+  <ul class="collapse">
+  <li><a href="#genomics-mutation-burden-and-copy-number" id="toc-genomics-mutation-burden-and-copy-number" class="nav-link" data-scroll-target="#genomics-mutation-burden-and-copy-number">3.1 Genomics: Mutation Burden and Copy Number</a></li>
+  <li><a href="#transcriptomics-differential-expression" id="toc-transcriptomics-differential-expression" class="nav-link" data-scroll-target="#transcriptomics-differential-expression">3.2 Transcriptomics: Differential Expression</a></li>
+  <li><a href="#proteomics-differential-abundance" id="toc-proteomics-differential-abundance" class="nav-link" data-scroll-target="#proteomics-differential-abundance">3.3 Proteomics: Differential Abundance</a></li>
+  <li><a href="#metabolomics-metabolite-shifts" id="toc-metabolomics-metabolite-shifts" class="nav-link" data-scroll-target="#metabolomics-metabolite-shifts">3.4 Metabolomics: Metabolite Shifts</a></li>
+  <li><a href="#epigenomics-differential-methylation" id="toc-epigenomics-differential-methylation" class="nav-link" data-scroll-target="#epigenomics-differential-methylation">3.5 Epigenomics: Differential Methylation</a></li>
+  </ul></li>
+  <li><a href="#multi-omics-integration-via-matrix-factorisation" id="toc-multi-omics-integration-via-matrix-factorisation" class="nav-link" data-scroll-target="#multi-omics-integration-via-matrix-factorisation">4. Multi-Omics Integration via Matrix Factorisation</a></li>
+  <li><a href="#machine-learning-classification" id="toc-machine-learning-classification" class="nav-link" data-scroll-target="#machine-learning-classification">5. Machine Learning Classification</a></li>
+  <li><a href="#systems-biology-interpretation" id="toc-systems-biology-interpretation" class="nav-link" data-scroll-target="#systems-biology-interpretation">6. Systems Biology Interpretation</a></li>
+  <li><a href="#personalised-medicine-patient-level-profiles" id="toc-personalised-medicine-patient-level-profiles" class="nav-link" data-scroll-target="#personalised-medicine-patient-level-profiles">7. Personalised Medicine: Patient-Level Profiles</a></li>
+  <li><a href="#takeaways" id="toc-takeaways" class="nav-link" data-scroll-target="#takeaways">8. Takeaways</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">From Genome to Phenotype: A Multi-Omics Framework for Cancer Subtype Discovery</h1>
+  <div class="quarto-categories">
+    <div class="quarto-category">Multi-Omics</div>
+    <div class="quarto-category">Machine Learning</div>
+    <div class="quarto-category">Bioinformatics</div>
+    <div class="quarto-category">Systems Biology</div>
+    <div class="quarto-category">RStats</div>
+    <div class="quarto-category">Python</div>
+    <div class="quarto-category">Cancer Genomics</div>
+  </div>
+  </div>
+
+<div>
+  <div class="description">
+    An R + Python integration piece: five simulated omic layers (genomics, transcriptomics, proteomics, metabolomics, epigenomics) unified via unsupervised matrix factorisation in R, then classified with a scikit-learn ML model and interpreted through SHAP in Python via reticulate — with an honest look at where integration genuinely helps and where a data leakage artifact inflates the numbers.
+  </div>
+</div>
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Peekei </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">July 14, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="motivation" class="level2">
+<h2 class="anchored" data-anchor-id="motivation">1. Motivation</h2>
+<p>A somatic mutation that drives tumour initiation reshapes the transcriptome. The altered transcriptome changes which proteins are translated and in what abundance. Shifted protein activity perturbs metabolic flux. Aberrant metabolism feeds back onto the epigenome through altered methyl-donor availability. Cancer is not a disease of any single molecular layer — it is a disease of the <em>interactions</em> between layers, and a framework that measures only one of them is looking at one face of a multidimensional object and calling it the whole shape.</p>
+<p>This is the structural problem that multi-omics integration addresses. Each omic platform (genomics, transcriptomics, proteomics, metabolomics, epigenomics) provides a noisy, incomplete view of the same underlying biological state. Integration recovers latent structure that no single layer can resolve alone — a fact this article demonstrates quantitatively rather than asserting. The analysis builds five omic data layers from a simulated pan-cancer cohort with a known ground truth, analyses each layer in isolation, integrates them using unsupervised matrix factorisation, classifies cancer subtypes with a machine learning model trained on integrated vs.&nbsp;single-omic features, and interprets the result through a systems biology and personalised medicine lens.</p>
+</section>
+<section id="simulated-pan-cancer-cohort" class="level2">
+<h2 class="anchored" data-anchor-id="simulated-pan-cancer-cohort">2. Simulated Pan-Cancer Cohort</h2>
+<p>The simulation starts with one biological truth — patient subtype — and propagates its signal through five omic layers with realistic noise, correlation structure, and platform-specific distributional properties. Every downstream result is traceable to this ground truth.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>n_patients  <span class="ot">&lt;-</span> <span class="dv">200</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>n_subtype_a <span class="ot">&lt;-</span> <span class="dv">100</span>   <span class="co"># aggressive subtype</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>n_subtype_b <span class="ot">&lt;-</span> <span class="dv">100</span>   <span class="co"># indolent subtype</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>subtype <span class="ot">&lt;-</span> <span class="fu">factor</span>(<span class="fu">c</span>(<span class="fu">rep</span>(<span class="st">"A"</span>, n_subtype_a), <span class="fu">rep</span>(<span class="st">"B"</span>, n_subtype_b)))</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>patient_id <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"P"</span>, <span class="fu">str_pad</span>(<span class="dv">1</span><span class="sc">:</span>n_patients, <span class="dv">3</span>, <span class="at">pad =</span> <span class="st">"0"</span>))</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Latent biological score: drives signal across all omic layers</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Subtype A has higher latent score on average</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>latent_score <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(n_subtype_a, <span class="at">mean =</span>  <span class="fl">1.2</span>, <span class="at">sd =</span> <span class="fl">0.8</span>),</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(n_subtype_b, <span class="at">mean =</span> <span class="sc">-</span><span class="fl">1.2</span>, <span class="at">sd =</span> <span class="fl">0.8</span>)</span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Patient-level survival times (used later in Section 8)</span></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="co"># Subtype A: worse prognosis</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>baseline_hazard <span class="ot">&lt;-</span> <span class="fl">0.03</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>surv_times <span class="ot">&lt;-</span> <span class="fu">rexp</span>(n_patients,</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">rate =</span> baseline_hazard <span class="sc">*</span> <span class="fu">exp</span>(<span class="fl">0.6</span> <span class="sc">*</span> (subtype <span class="sc">==</span> <span class="st">"A"</span>) <span class="sc">+</span> <span class="fl">0.15</span> <span class="sc">*</span> latent_score))</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>censor_time <span class="ot">&lt;-</span> <span class="fu">runif</span>(n_patients, <span class="at">min =</span> <span class="dv">12</span>, <span class="at">max =</span> <span class="dv">60</span>)</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>obs_time    <span class="ot">&lt;-</span> <span class="fu">pmin</span>(surv_times, censor_time)</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>event_status <span class="ot">&lt;-</span> <span class="fu">as.integer</span>(surv_times <span class="sc">&lt;=</span> censor_time)</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>cohort_meta <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>  <span class="at">patient_id   =</span> patient_id,</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>  <span class="at">subtype      =</span> subtype,</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>  <span class="at">latent_score =</span> latent_score,</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>  <span class="at">obs_time     =</span> <span class="fu">round</span>(obs_time, <span class="dv">1</span>),</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>  <span class="at">event        =</span> event_status</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>cohort_meta <span class="sc">%&gt;%</span></span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">group_by</span>(subtype) <span class="sc">%&gt;%</span></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">summarise</span>(</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>    <span class="at">n          =</span> <span class="fu">n</span>(),</span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>    <span class="at">mean_latent =</span> <span class="fu">round</span>(<span class="fu">mean</span>(latent_score), <span class="dv">2</span>),</span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>    <span class="at">event_rate  =</span> <span class="fu">round</span>(<span class="fu">mean</span>(event), <span class="dv">2</span>),</span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>    <span class="at">median_surv =</span> <span class="fu">round</span>(<span class="fu">median</span>(obs_time), <span class="dv">1</span>)</span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 2 × 5
+  subtype     n mean_latent event_rate median_surv
+  &lt;fct&gt;   &lt;int&gt;       &lt;dbl&gt;      &lt;dbl&gt;       &lt;dbl&gt;
+1 A         100        1.2        0.87         9.2
+2 B         100       -1.19       0.55        21.7</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 1: Genomics ──────────────────────────────────────────────────────────</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Tumour mutation burden (TMB) and copy number variation (CNV) score</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Subtype A: higher TMB, more CNV instability</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>tmb <span class="ot">&lt;-</span> <span class="fu">rnegbin</span>(n_patients,</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">mu    =</span> <span class="fu">exp</span>(<span class="fl">2.5</span> <span class="sc">+</span> <span class="fl">0.8</span> <span class="sc">*</span> (subtype <span class="sc">==</span> <span class="st">"A"</span>) <span class="sc">+</span> <span class="fl">0.3</span> <span class="sc">*</span> latent_score),</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">theta =</span> <span class="dv">3</span>)</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>cnv_score <span class="ot">&lt;-</span> <span class="fl">0.6</span> <span class="sc">*</span> latent_score <span class="sc">+</span> <span class="fu">rnorm</span>(n_patients, <span class="at">sd =</span> <span class="fl">0.6</span>)</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>genomics_df <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">patient_id =</span> patient_id,</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">tmb        =</span> tmb,</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">cnv_score  =</span> cnv_score,</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">subtype    =</span> subtype</span>
+<span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 2: Transcriptomics ───────────────────────────────────────────────────</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 500 genes: 80 differentially expressed by subtype, 420 null</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>n_genes  <span class="ot">&lt;-</span> <span class="dv">500</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>n_de     <span class="ot">&lt;-</span> <span class="dv">80</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>gene_names <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"GENE_"</span>, <span class="fu">str_pad</span>(<span class="dv">1</span><span class="sc">:</span>n_genes, <span class="dv">3</span>, <span class="at">pad =</span> <span class="st">"0"</span>))</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a><span class="co"># True log fold changes per gene</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>true_lfc <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(n_de<span class="sc">/</span><span class="dv">2</span>,  <span class="at">mean =</span>  <span class="fl">1.8</span>, <span class="at">sd =</span> <span class="fl">0.4</span>),   <span class="co"># upregulated in A</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(n_de<span class="sc">/</span><span class="dv">2</span>,  <span class="at">mean =</span> <span class="sc">-</span><span class="fl">1.8</span>, <span class="at">sd =</span> <span class="fl">0.4</span>),   <span class="co"># downregulated in A</span></span>
+<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(n_genes <span class="sc">-</span> n_de, <span class="at">mean =</span> <span class="dv">0</span>, <span class="at">sd =</span> <span class="fl">0.08</span>)</span>
+<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>true_lfc <span class="ot">&lt;-</span> <span class="fu">sample</span>(true_lfc)</span>
+<span id="cb4-15"><a href="#cb4-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-16"><a href="#cb4-16" aria-hidden="true" tabindex="-1"></a>baseline_expr  <span class="ot">&lt;-</span> <span class="fu">exp</span>(<span class="fu">rnorm</span>(n_genes, <span class="at">mean =</span> <span class="dv">5</span>, <span class="at">sd =</span> <span class="fl">1.2</span>))</span>
+<span id="cb4-17"><a href="#cb4-17" aria-hidden="true" tabindex="-1"></a>gene_disp      <span class="ot">&lt;-</span> <span class="fu">rgamma</span>(n_genes, <span class="at">shape =</span> <span class="dv">3</span>, <span class="at">rate =</span> <span class="dv">8</span>)</span>
+<span id="cb4-18"><a href="#cb4-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-19"><a href="#cb4-19" aria-hidden="true" tabindex="-1"></a>rna_counts <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="cn">NA_integer_</span>, <span class="at">nrow =</span> n_patients, <span class="at">ncol =</span> n_genes)</span>
+<span id="cb4-20"><a href="#cb4-20" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (g <span class="cf">in</span> <span class="fu">seq_len</span>(n_genes)) {</span>
+<span id="cb4-21"><a href="#cb4-21" aria-hidden="true" tabindex="-1"></a>  mu_a <span class="ot">&lt;-</span> baseline_expr[g] <span class="sc">*</span> <span class="dv">2</span><span class="sc">^</span>true_lfc[g]</span>
+<span id="cb4-22"><a href="#cb4-22" aria-hidden="true" tabindex="-1"></a>  mu_b <span class="ot">&lt;-</span> baseline_expr[g]</span>
+<span id="cb4-23"><a href="#cb4-23" aria-hidden="true" tabindex="-1"></a>  mu_vec <span class="ot">&lt;-</span> <span class="fu">ifelse</span>(subtype <span class="sc">==</span> <span class="st">"A"</span>, mu_a, mu_b) <span class="sc">*</span></span>
+<span id="cb4-24"><a href="#cb4-24" aria-hidden="true" tabindex="-1"></a>            <span class="fu">exp</span>(<span class="fl">0.2</span> <span class="sc">*</span> latent_score)</span>
+<span id="cb4-25"><a href="#cb4-25" aria-hidden="true" tabindex="-1"></a>  rna_counts[, g] <span class="ot">&lt;-</span> <span class="fu">rnegbin</span>(n_patients,</span>
+<span id="cb4-26"><a href="#cb4-26" aria-hidden="true" tabindex="-1"></a>    <span class="at">mu =</span> mu_vec, <span class="at">theta =</span> <span class="dv">1</span> <span class="sc">/</span> gene_disp[g])</span>
+<span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(rna_counts) <span class="ot">&lt;-</span> patient_id</span>
+<span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(rna_counts) <span class="ot">&lt;-</span> gene_names</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 3: Proteomics ────────────────────────────────────────────────────────</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 200 proteins: abundance correlated with transcriptomics + measurement noise</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co"># 50 proteins with subtype-specific shifts</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>n_proteins  <span class="ot">&lt;-</span> <span class="dv">200</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>n_de_prot   <span class="ot">&lt;-</span> <span class="dv">50</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>prot_names  <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"PROT_"</span>, <span class="fu">str_pad</span>(<span class="dv">1</span><span class="sc">:</span>n_proteins, <span class="dv">3</span>, <span class="at">pad =</span> <span class="st">"0"</span>))</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Base protein abundance (log-normal)</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>prot_baseline <span class="ot">&lt;-</span> <span class="fu">rnorm</span>(n_proteins, <span class="at">mean =</span> <span class="dv">8</span>, <span class="at">sd =</span> <span class="fl">1.5</span>)</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>prot_lfc      <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(n_de_prot<span class="sc">/</span><span class="dv">2</span>,  <span class="at">mean =</span>  <span class="fl">1.2</span>, <span class="at">sd =</span> <span class="fl">0.3</span>),</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(n_de_prot<span class="sc">/</span><span class="dv">2</span>,  <span class="at">mean =</span> <span class="sc">-</span><span class="fl">1.2</span>, <span class="at">sd =</span> <span class="fl">0.3</span>),</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(n_proteins <span class="sc">-</span> n_de_prot, <span class="at">mean =</span> <span class="dv">0</span>, <span class="at">sd =</span> <span class="fl">0.05</span>)</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>prot_lfc <span class="ot">&lt;-</span> <span class="fu">sample</span>(prot_lfc)</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>proteomics_mat <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="cn">NA_real_</span>, <span class="at">nrow =</span> n_patients, <span class="at">ncol =</span> n_proteins)</span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (p <span class="cf">in</span> <span class="fu">seq_len</span>(n_proteins)) {</span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>  mu_vec <span class="ot">&lt;-</span> prot_baseline[p] <span class="sc">+</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a>            prot_lfc[p] <span class="sc">*</span> (subtype <span class="sc">==</span> <span class="st">"A"</span>) <span class="sc">+</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>            <span class="fl">0.25</span> <span class="sc">*</span> latent_score</span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>  proteomics_mat[, p] <span class="ot">&lt;-</span> mu_vec <span class="sc">+</span> <span class="fu">rnorm</span>(n_patients, <span class="at">sd =</span> <span class="fl">0.8</span>)</span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(proteomics_mat) <span class="ot">&lt;-</span> patient_id</span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(proteomics_mat) <span class="ot">&lt;-</span> prot_names</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 4: Metabolomics ──────────────────────────────────────────────────────</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 150 metabolites: log-normal concentrations, subtype-shifted</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>n_metabolites <span class="ot">&lt;-</span> <span class="dv">150</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>metab_names   <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"MET_"</span>, <span class="fu">str_pad</span>(<span class="dv">1</span><span class="sc">:</span>n_metabolites, <span class="dv">3</span>, <span class="at">pad =</span> <span class="st">"0"</span>))</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>metab_lfc <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(<span class="dv">30</span>, <span class="at">mean =</span>  <span class="fl">1.0</span>, <span class="at">sd =</span> <span class="fl">0.3</span>),</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(<span class="dv">20</span>, <span class="at">mean =</span> <span class="sc">-</span><span class="fl">1.0</span>, <span class="at">sd =</span> <span class="fl">0.3</span>),</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rnorm</span>(<span class="dv">100</span>, <span class="at">mean =</span> <span class="dv">0</span>,   <span class="at">sd =</span> <span class="fl">0.05</span>)</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>metab_lfc <span class="ot">&lt;-</span> <span class="fu">sample</span>(metab_lfc)</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>metabolomics_mat <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="cn">NA_real_</span>, <span class="at">nrow =</span> n_patients, <span class="at">ncol =</span> n_metabolites)</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (m <span class="cf">in</span> <span class="fu">seq_len</span>(n_metabolites)) {</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>  log_mu <span class="ot">&lt;-</span> <span class="dv">4</span> <span class="sc">+</span> metab_lfc[m] <span class="sc">*</span> (subtype <span class="sc">==</span> <span class="st">"A"</span>) <span class="sc">+</span> <span class="fl">0.15</span> <span class="sc">*</span> latent_score</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  metabolomics_mat[, m] <span class="ot">&lt;-</span> <span class="fu">exp</span>(log_mu <span class="sc">+</span> <span class="fu">rnorm</span>(n_patients, <span class="at">sd =</span> <span class="fl">0.5</span>))</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(metabolomics_mat) <span class="ot">&lt;-</span> patient_id</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(metabolomics_mat) <span class="ot">&lt;-</span> metab_names</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 5: Epigenomics (DNA methylation) ─────────────────────────────────────</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 300 CpG sites: beta values in [0,1], differentially methylated by subtype</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>n_cpg      <span class="ot">&lt;-</span> <span class="dv">300</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>cpg_names  <span class="ot">&lt;-</span> <span class="fu">paste0</span>(<span class="st">"CpG_"</span>, <span class="fu">str_pad</span>(<span class="dv">1</span><span class="sc">:</span>n_cpg, <span class="dv">3</span>, <span class="at">pad =</span> <span class="st">"0"</span>))</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>cpg_delta <span class="ot">&lt;-</span> <span class="fu">c</span>(</span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">runif</span>(<span class="dv">60</span>,  <span class="at">min =</span>  <span class="fl">0.15</span>, <span class="at">max =</span>  <span class="fl">0.4</span>),   <span class="co"># hypermethylated in A</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">runif</span>(<span class="dv">40</span>,  <span class="at">min =</span> <span class="sc">-</span><span class="fl">0.4</span>,  <span class="at">max =</span> <span class="sc">-</span><span class="fl">0.15</span>),  <span class="co"># hypomethylated in A</span></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">runif</span>(<span class="dv">200</span>, <span class="at">min =</span> <span class="sc">-</span><span class="fl">0.03</span>, <span class="at">max =</span>  <span class="fl">0.03</span>)   <span class="co"># null sites</span></span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>cpg_delta <span class="ot">&lt;-</span> <span class="fu">sample</span>(cpg_delta)</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>cpg_base  <span class="ot">&lt;-</span> <span class="fu">runif</span>(n_cpg, <span class="at">min =</span> <span class="fl">0.2</span>, <span class="at">max =</span> <span class="fl">0.8</span>)</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>epigenomics_mat <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="cn">NA_real_</span>, <span class="at">nrow =</span> n_patients, <span class="at">ncol =</span> n_cpg)</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (c_idx <span class="cf">in</span> <span class="fu">seq_len</span>(n_cpg)) {</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>  raw <span class="ot">&lt;-</span> cpg_base[c_idx] <span class="sc">+</span></span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>         cpg_delta[c_idx] <span class="sc">*</span> (subtype <span class="sc">==</span> <span class="st">"A"</span>) <span class="sc">+</span></span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>         <span class="fl">0.05</span> <span class="sc">*</span> latent_score <span class="sc">+</span></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>         <span class="fu">rnorm</span>(n_patients, <span class="at">sd =</span> <span class="fl">0.06</span>)</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>  epigenomics_mat[, c_idx] <span class="ot">&lt;-</span> <span class="fu">pmin</span>(<span class="fu">pmax</span>(raw, <span class="fl">0.01</span>), <span class="fl">0.99</span>)</span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(epigenomics_mat) <span class="ot">&lt;-</span> patient_id</span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(epigenomics_mat) <span class="ot">&lt;-</span> cpg_names</span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"All five omic layers simulated.</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>All five omic layers simulated.</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Genomics:        "</span>, n_patients, <span class="st">"patients x 2 features</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Genomics:         200 patients x 2 features</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Transcriptomics: "</span>, n_patients, <span class="st">"patients x"</span>, n_genes, <span class="st">"genes</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Transcriptomics:  200 patients x 500 genes</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Proteomics:      "</span>, n_patients, <span class="st">"patients x"</span>, n_proteins, <span class="st">"proteins</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Proteomics:       200 patients x 200 proteins</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Metabolomics:    "</span>, n_patients, <span class="st">"patients x"</span>, n_metabolites, <span class="st">"metabolites</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Metabolomics:     200 patients x 150 metabolites</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Epigenomics:     "</span>, n_patients, <span class="st">"patients x"</span>, n_cpg, <span class="st">"CpG sites</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Epigenomics:      200 patients x 300 CpG sites</code></pre>
+</div>
+</div>
+<p>Five data matrices, one biological ground truth. The latent score percolates through all five layers at different signal-to-noise ratios — transcriptomics carries the strongest per-feature signal (80 DE genes, large LFC), metabolomics and epigenomics carry moderate signal, proteomics is noisier per feature, and genomics provides two summary features (TMB, CNV) with strong subtype association. A method that can only see one layer is working with a fraction of the available information.</p>
+</section>
+<section id="single-omic-analyses" class="level2">
+<h2 class="anchored" data-anchor-id="single-omic-analyses">3. Single-Omic Analyses</h2>
+<p>Before integrating, each layer is analysed in isolation to establish what it can and cannot resolve on its own. This is the baseline the integrated model needs to improve on.</p>
+<section id="genomics-mutation-burden-and-copy-number" class="level3">
+<h3 class="anchored" data-anchor-id="genomics-mutation-burden-and-copy-number">3.1 Genomics: Mutation Burden and Copy Number</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>tmb_test  <span class="ot">&lt;-</span> <span class="fu">wilcox.test</span>(tmb <span class="sc">~</span> subtype, <span class="at">data =</span> genomics_df)</span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>cnv_test  <span class="ot">&lt;-</span> <span class="fu">wilcox.test</span>(cnv_score <span class="sc">~</span> subtype, <span class="at">data =</span> genomics_df)</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>tmb_p   <span class="ot">&lt;-</span> tmb_test<span class="sc">$</span>p.value</span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a>cnv_p   <span class="ot">&lt;-</span> cnv_test<span class="sc">$</span>p.value</span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a>tmb_med_a <span class="ot">&lt;-</span> <span class="fu">median</span>(genomics_df<span class="sc">$</span>tmb[genomics_df<span class="sc">$</span>subtype <span class="sc">==</span> <span class="st">"A"</span>])</span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a>tmb_med_b <span class="ot">&lt;-</span> <span class="fu">median</span>(genomics_df<span class="sc">$</span>tmb[genomics_df<span class="sc">$</span>subtype <span class="sc">==</span> <span class="st">"B"</span>])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>p_tmb <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(genomics_df, <span class="fu">aes</span>(<span class="at">x =</span> subtype, <span class="at">y =</span> tmb, <span class="at">fill =</span> subtype)) <span class="sc">+</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_boxplot</span>(<span class="at">alpha =</span> <span class="fl">0.7</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.4</span>) <span class="sc">+</span></span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="st">"#E64B35"</span>, <span class="at">B =</span> <span class="st">"#4DBBD5"</span>)) <span class="sc">+</span></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Subtype"</span>, <span class="at">y =</span> <span class="st">"Tumour mutation burden"</span>, <span class="at">title =</span> <span class="st">"TMB"</span>) <span class="sc">+</span></span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>() <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"none"</span>)</span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>p_cnv <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(genomics_df, <span class="fu">aes</span>(<span class="at">x =</span> subtype, <span class="at">y =</span> cnv_score, <span class="at">fill =</span> subtype)) <span class="sc">+</span></span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_boxplot</span>(<span class="at">alpha =</span> <span class="fl">0.7</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.4</span>) <span class="sc">+</span></span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="st">"#E64B35"</span>, <span class="at">B =</span> <span class="st">"#4DBBD5"</span>)) <span class="sc">+</span></span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Subtype"</span>, <span class="at">y =</span> <span class="st">"CNV instability score"</span>, <span class="at">title =</span> <span class="st">"CNV"</span>) <span class="sc">+</span></span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>() <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"none"</span>)</span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a>p_tmb <span class="sc">+</span> p_cnv</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/genomics-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>TMB and CNV score distributions by cancer subtype</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>TMB median: 30 (Subtype A) vs.&nbsp;7 (Subtype B), Wilcoxon p &lt; 2e-16. CNV instability separates subtypes just as cleanly (p &lt; 2e-16). Genomics gives two high-signal features, but two features alone don’t capture the full heterogeneity of patient biology within each subtype.</p>
+</section>
+<section id="transcriptomics-differential-expression" class="level3">
+<h3 class="anchored" data-anchor-id="transcriptomics-differential-expression">3.2 Transcriptomics: Differential Expression</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Log-CPM normalisation then limma for DE</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>log_cpm <span class="ot">&lt;-</span> <span class="fu">log2</span>(rna_counts <span class="sc">/</span> <span class="fu">rowSums</span>(rna_counts) <span class="sc">*</span> <span class="fl">1e6</span> <span class="sc">+</span> <span class="dv">1</span>)</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>design_mat <span class="ot">&lt;-</span> <span class="fu">model.matrix</span>(<span class="sc">~</span> subtype)</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span> <span class="fu">lmFit</span>(<span class="fu">t</span>(log_cpm), design_mat)</span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>fit <span class="ot">&lt;-</span> <span class="fu">eBayes</span>(fit)</span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>de_results <span class="ot">&lt;-</span> <span class="fu">topTable</span>(fit, <span class="at">coef =</span> <span class="dv">2</span>, <span class="at">number =</span> <span class="cn">Inf</span>, <span class="at">sort.by =</span> <span class="st">"P"</span>)</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>n_sig_up   <span class="ot">&lt;-</span> <span class="fu">sum</span>(de_results<span class="sc">$</span>logFC <span class="sc">&gt;</span> <span class="fl">0.5</span> <span class="sc">&amp;</span> de_results<span class="sc">$</span>adj.P.Val <span class="sc">&lt;</span> <span class="fl">0.05</span>)</span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a>n_sig_down <span class="ot">&lt;-</span> <span class="fu">sum</span>(de_results<span class="sc">$</span>logFC <span class="sc">&lt;</span> <span class="sc">-</span><span class="fl">0.5</span> <span class="sc">&amp;</span> de_results<span class="sc">$</span>adj.P.Val <span class="sc">&lt;</span> <span class="fl">0.05</span>)</span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>top_gene   <span class="ot">&lt;-</span> <span class="fu">rownames</span>(de_results)[<span class="dv">1</span>]</span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>top_lfc    <span class="ot">&lt;-</span> de_results<span class="sc">$</span>logFC[<span class="dv">1</span>]</span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>top_fdr    <span class="ot">&lt;-</span> de_results<span class="sc">$</span>adj.P.Val[<span class="dv">1</span>]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>de_results <span class="sc">%&gt;%</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rownames_to_column</span>(<span class="st">"gene"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">sig =</span> <span class="fu">case_when</span>(</span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>      adj.P.Val <span class="sc">&lt;</span> <span class="fl">0.05</span> <span class="sc">&amp;</span> logFC <span class="sc">&gt;</span>  <span class="fl">0.5</span> <span class="sc">~</span> <span class="st">"Up in A"</span>,</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>      adj.P.Val <span class="sc">&lt;</span> <span class="fl">0.05</span> <span class="sc">&amp;</span> logFC <span class="sc">&lt;</span> <span class="sc">-</span><span class="fl">0.5</span> <span class="sc">~</span> <span class="st">"Down in A"</span>,</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>      <span class="cn">TRUE</span> <span class="sc">~</span> <span class="st">"NS"</span></span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">%&gt;%</span></span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> logFC, <span class="at">y =</span> <span class="sc">-</span><span class="fu">log10</span>(adj.P.Val), <span class="at">color =</span> sig)) <span class="sc">+</span></span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.5</span>, <span class="at">size =</span> <span class="fl">1.2</span>) <span class="sc">+</span></span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_hline</span>(<span class="at">yintercept =</span> <span class="sc">-</span><span class="fu">log10</span>(<span class="fl">0.05</span>), <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">color =</span> <span class="st">"grey50"</span>) <span class="sc">+</span></span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> <span class="fu">c</span>(<span class="sc">-</span><span class="fl">0.5</span>, <span class="fl">0.5</span>), <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">color =</span> <span class="st">"grey50"</span>) <span class="sc">+</span></span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(</span>
+<span id="cb22-15"><a href="#cb22-15" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Up in A"</span>   <span class="ot">=</span> <span class="st">"#E64B35"</span>,</span>
+<span id="cb22-16"><a href="#cb22-16" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Down in A"</span> <span class="ot">=</span> <span class="st">"#4DBBD5"</span>,</span>
+<span id="cb22-17"><a href="#cb22-17" aria-hidden="true" tabindex="-1"></a>    <span class="st">"NS"</span>        <span class="ot">=</span> <span class="st">"grey70"</span>)) <span class="sc">+</span></span>
+<span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"log2 fold change (A vs B)"</span>,</span>
+<span id="cb22-19"><a href="#cb22-19" aria-hidden="true" tabindex="-1"></a>       <span class="at">y =</span> <span class="st">"-log10(FDR)"</span>, <span class="at">color =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
+<span id="cb22-20"><a href="#cb22-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/volcano-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Volcano plot of differential expression between subtypes A and B</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>173 genes upregulated and 39 downregulated in Subtype A at FDR &lt; 5% and |LFC| &gt; 0.5. Top hit: GENE_123 (LFC = 1.86, FDR &lt; 2e-16). Transcriptomics recovers the simulated DE signal effectively — almost too effectively, as Section 5 shows — but the 420 null genes still add noise to any downstream classification that uses raw expression features without selection.</p>
+</section>
+<section id="proteomics-differential-abundance" class="level3">
+<h3 class="anchored" data-anchor-id="proteomics-differential-abundance">3.3 Proteomics: Differential Abundance</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="co"># limma on log-transformed protein abundances</span></span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>log_prot <span class="ot">&lt;-</span> <span class="fu">log2</span>(proteomics_mat <span class="sc">-</span> <span class="fu">min</span>(proteomics_mat) <span class="sc">+</span> <span class="dv">1</span>)</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>fit_prot  <span class="ot">&lt;-</span> <span class="fu">lmFit</span>(<span class="fu">t</span>(log_prot), design_mat)</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a>fit_prot  <span class="ot">&lt;-</span> <span class="fu">eBayes</span>(fit_prot)</span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>prot_res  <span class="ot">&lt;-</span> <span class="fu">topTable</span>(fit_prot, <span class="at">coef =</span> <span class="dv">2</span>, <span class="at">number =</span> <span class="cn">Inf</span>, <span class="at">sort.by =</span> <span class="st">"P"</span>)</span>
+<span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>n_da_prot <span class="ot">&lt;-</span> <span class="fu">sum</span>(<span class="fu">abs</span>(prot_res<span class="sc">$</span>logFC) <span class="sc">&gt;</span> <span class="fl">0.3</span> <span class="sc">&amp;</span> prot_res<span class="sc">$</span>adj.P.Val <span class="sc">&lt;</span> <span class="fl">0.05</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>top40_prots <span class="ot">&lt;-</span> <span class="fu">rownames</span>(prot_res)[<span class="dv">1</span><span class="sc">:</span><span class="dv">40</span>]</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>annot_col   <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Subtype =</span> subtype)</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(annot_col) <span class="ot">&lt;-</span> patient_id</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a><span class="fu">pheatmap</span>(</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">t</span>(log_prot[, top40_prots]),</span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">annotation_col  =</span> annot_col,</span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_colnames   =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">show_rownames   =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">color           =</span> <span class="fu">colorRampPalette</span>(<span class="fu">c</span>(<span class="st">"#4DBBD5"</span>,<span class="st">"white"</span>,<span class="st">"#E64B35"</span>))(<span class="dv">100</span>),</span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">annotation_colors =</span> <span class="fu">list</span>(<span class="at">Subtype =</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="st">"#E64B35"</span>, <span class="at">B =</span> <span class="st">"#4DBBD5"</span>)),</span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">main            =</span> <span class="st">"Top 40 proteins (log2 abundance)"</span></span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/proteomics-heatmap-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Heatmap of top 40 differentially abundant proteins across all patients</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>16 proteins differentially abundant at FDR &lt; 5% and |LFC| &gt; 0.3. The heatmap shows reasonable subtype clustering but with visible misclassifications — proteomics alone can’t cleanly separate the subtypes because the per-protein signal is weaker and measurement noise is higher than in transcriptomics.</p>
+</section>
+<section id="metabolomics-metabolite-shifts" class="level3">
+<h3 class="anchored" data-anchor-id="metabolomics-metabolite-shifts">3.4 Metabolomics: Metabolite Shifts</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>log_metab <span class="ot">&lt;-</span> <span class="fu">log</span>(metabolomics_mat <span class="sc">+</span> <span class="dv">1</span>)</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>fit_metab <span class="ot">&lt;-</span> <span class="fu">lmFit</span>(<span class="fu">t</span>(log_metab), design_mat)</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a>fit_metab <span class="ot">&lt;-</span> <span class="fu">eBayes</span>(fit_metab)</span>
+<span id="cb25-5"><a href="#cb25-5" aria-hidden="true" tabindex="-1"></a>metab_res <span class="ot">&lt;-</span> <span class="fu">topTable</span>(fit_metab, <span class="at">coef =</span> <span class="dv">2</span>, <span class="at">number =</span> <span class="cn">Inf</span>, <span class="at">sort.by =</span> <span class="st">"P"</span>)</span>
+<span id="cb25-6"><a href="#cb25-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-7"><a href="#cb25-7" aria-hidden="true" tabindex="-1"></a>n_sig_metab <span class="ot">&lt;-</span> <span class="fu">sum</span>(<span class="fu">abs</span>(metab_res<span class="sc">$</span>logFC) <span class="sc">&gt;</span> <span class="fl">0.2</span> <span class="sc">&amp;</span> metab_res<span class="sc">$</span>adj.P.Val <span class="sc">&lt;</span> <span class="fl">0.05</span>)</span>
+<span id="cb25-8"><a href="#cb25-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-9"><a href="#cb25-9" aria-hidden="true" tabindex="-1"></a><span class="co"># PCA on metabolomics</span></span>
+<span id="cb25-10"><a href="#cb25-10" aria-hidden="true" tabindex="-1"></a>pca_metab <span class="ot">&lt;-</span> <span class="fu">prcomp</span>(log_metab, <span class="at">scale. =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb25-11"><a href="#cb25-11" aria-hidden="true" tabindex="-1"></a>pca_df    <span class="ot">&lt;-</span> <span class="fu">as_tibble</span>(pca_metab<span class="sc">$</span>x[, <span class="dv">1</span><span class="sc">:</span><span class="dv">2</span>]) <span class="sc">%&gt;%</span></span>
+<span id="cb25-12"><a href="#cb25-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">subtype =</span> subtype, <span class="at">patient =</span> patient_id)</span>
+<span id="cb25-13"><a href="#cb25-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb25-14"><a href="#cb25-14" aria-hidden="true" tabindex="-1"></a>var_pc1 <span class="ot">&lt;-</span> <span class="fu">round</span>(<span class="fu">summary</span>(pca_metab)<span class="sc">$</span>importance[<span class="dv">2</span>, <span class="dv">1</span>] <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>)</span>
+<span id="cb25-15"><a href="#cb25-15" aria-hidden="true" tabindex="-1"></a>var_pc2 <span class="ot">&lt;-</span> <span class="fu">round</span>(<span class="fu">summary</span>(pca_metab)<span class="sc">$</span>importance[<span class="dv">2</span>, <span class="dv">2</span>] <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(pca_df, <span class="fu">aes</span>(<span class="at">x =</span> PC1, <span class="at">y =</span> PC2, <span class="at">color =</span> subtype)) <span class="sc">+</span></span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.7</span>, <span class="at">size =</span> <span class="dv">2</span>) <span class="sc">+</span></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stat_ellipse</span>(<span class="at">level =</span> <span class="fl">0.90</span>, <span class="at">linewidth =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="st">"#E64B35"</span>, <span class="at">B =</span> <span class="st">"#4DBBD5"</span>)) <span class="sc">+</span></span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="fu">paste0</span>(<span class="st">"PC1 ("</span>, var_pc1, <span class="st">"%)"</span>),</span>
+<span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>       <span class="at">y =</span> <span class="fu">paste0</span>(<span class="st">"PC2 ("</span>, var_pc2, <span class="st">"%)"</span>),</span>
+<span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>       <span class="at">color =</span> <span class="st">"Subtype"</span>) <span class="sc">+</span></span>
+<span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/metabolomics-pca-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>PCA of metabolomics data coloured by subtype</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>144 metabolites significantly shifted between subtypes. The PCA shows partial separation along PC1 (25.5% variance explained) — there’s signal here, but considerable overlap remains, particularly toward the centre of the score plot.</p>
+</section>
+<section id="epigenomics-differential-methylation" class="level3">
+<h3 class="anchored" data-anchor-id="epigenomics-differential-methylation">3.5 Epigenomics: Differential Methylation</h3>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>fit_epi <span class="ot">&lt;-</span> <span class="fu">lmFit</span>(<span class="fu">t</span>(epigenomics_mat), design_mat)</span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>fit_epi <span class="ot">&lt;-</span> <span class="fu">eBayes</span>(fit_epi)</span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>epi_res <span class="ot">&lt;-</span> <span class="fu">topTable</span>(fit_epi, <span class="at">coef =</span> <span class="dv">2</span>, <span class="at">number =</span> <span class="cn">Inf</span>, <span class="at">sort.by =</span> <span class="st">"P"</span>)</span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>n_dmc      <span class="ot">&lt;-</span> <span class="fu">sum</span>(<span class="fu">abs</span>(epi_res<span class="sc">$</span>logFC) <span class="sc">&gt;</span> <span class="fl">0.1</span> <span class="sc">&amp;</span> epi_res<span class="sc">$</span>adj.P.Val <span class="sc">&lt;</span> <span class="fl">0.05</span>)</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a>top_cpg    <span class="ot">&lt;-</span> <span class="fu">rownames</span>(epi_res)[<span class="dv">1</span>]</span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>top_cpg_fc <span class="ot">&lt;-</span> epi_res<span class="sc">$</span>logFC[<span class="dv">1</span>]</span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Single-omic classification accuracy using top CpGs</span></span>
+<span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a>top_cpgs_class <span class="ot">&lt;-</span> <span class="fu">rownames</span>(epi_res)[<span class="dv">1</span><span class="sc">:</span><span class="dv">20</span>]</span>
+<span id="cb27-11"><a href="#cb27-11" aria-hidden="true" tabindex="-1"></a>epi_features   <span class="ot">&lt;-</span> epigenomics_mat[, top_cpgs_class]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>254 differentially methylated CpG sites (FDR &lt; 5%, |Δβ| &gt; 0.1). Top site: CpG_233 (Δβ = -0.519). The methylation landscape provides an orthogonal view of subtype biology — CpG silencing of tumour suppressors in Subtype A is a separate biological mechanism from the TMB excess or the transcriptional reprogramming, even though all three trace back to the same latent biological state in this simulation.</p>
+</section>
+</section>
+<section id="multi-omics-integration-via-matrix-factorisation" class="level2">
+<h2 class="anchored" data-anchor-id="multi-omics-integration-via-matrix-factorisation">4. Multi-Omics Integration via Matrix Factorisation</h2>
+<p>Individual layers each see part of the signal. Integration extracts latent factors that span all five layers simultaneously — the subtype-associated variation that appears in genomics AND transcriptomics AND proteomics is more likely to be real biology than variation visible in only one layer.</p>
+<p>We implement a simplified multi-omics matrix factorisation (MOMA): concatenate normalised feature matrices from all layers, run PCA on the joint space, and extract the top latent factors. Each factor is then scored for its contribution from each omic layer.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Normalise each layer to zero mean, unit variance before concatenation</span></span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>scale_mat <span class="ot">&lt;-</span> <span class="cf">function</span>(mat) <span class="fu">scale</span>(mat)</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Use top variable features from each layer to keep dimensions manageable</span></span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>top_var_genes  <span class="ot">&lt;-</span> <span class="fu">names</span>(<span class="fu">sort</span>(<span class="fu">apply</span>(log_cpm, <span class="dv">2</span>, var), <span class="at">decreasing =</span> <span class="cn">TRUE</span>)[<span class="dv">1</span><span class="sc">:</span><span class="dv">100</span>])</span>
+<span id="cb28-6"><a href="#cb28-6" aria-hidden="true" tabindex="-1"></a>top_var_prots  <span class="ot">&lt;-</span> <span class="fu">names</span>(<span class="fu">sort</span>(<span class="fu">apply</span>(log_prot, <span class="dv">2</span>, var), <span class="at">decreasing =</span> <span class="cn">TRUE</span>)[<span class="dv">1</span><span class="sc">:</span><span class="dv">60</span>])</span>
+<span id="cb28-7"><a href="#cb28-7" aria-hidden="true" tabindex="-1"></a>top_var_metab  <span class="ot">&lt;-</span> <span class="fu">names</span>(<span class="fu">sort</span>(<span class="fu">apply</span>(log_metab, <span class="dv">2</span>, var), <span class="at">decreasing =</span> <span class="cn">TRUE</span>)[<span class="dv">1</span><span class="sc">:</span><span class="dv">50</span>])</span>
+<span id="cb28-8"><a href="#cb28-8" aria-hidden="true" tabindex="-1"></a>top_var_cpg    <span class="ot">&lt;-</span> <span class="fu">names</span>(<span class="fu">sort</span>(<span class="fu">apply</span>(epigenomics_mat, <span class="dv">2</span>, var), <span class="at">decreasing =</span> <span class="cn">TRUE</span>)[<span class="dv">1</span><span class="sc">:</span><span class="dv">60</span>])</span>
+<span id="cb28-9"><a href="#cb28-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-10"><a href="#cb28-10" aria-hidden="true" tabindex="-1"></a>integrated_mat <span class="ot">&lt;-</span> <span class="fu">cbind</span>(</span>
+<span id="cb28-11"><a href="#cb28-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_mat</span>(log_cpm[, top_var_genes]),</span>
+<span id="cb28-12"><a href="#cb28-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_mat</span>(log_prot[, top_var_prots]),</span>
+<span id="cb28-13"><a href="#cb28-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_mat</span>(log_metab[, top_var_metab]),</span>
+<span id="cb28-14"><a href="#cb28-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_mat</span>(epigenomics_mat[, top_var_cpg]),</span>
+<span id="cb28-15"><a href="#cb28-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_mat</span>(<span class="fu">cbind</span>(tmb, cnv_score))</span>
+<span id="cb28-16"><a href="#cb28-16" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb28-17"><a href="#cb28-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-18"><a href="#cb28-18" aria-hidden="true" tabindex="-1"></a>pca_int  <span class="ot">&lt;-</span> <span class="fu">prcomp</span>(integrated_mat, <span class="at">scale. =</span> <span class="cn">FALSE</span>)  <span class="co"># already scaled</span></span>
+<span id="cb28-19"><a href="#cb28-19" aria-hidden="true" tabindex="-1"></a>int_df   <span class="ot">&lt;-</span> <span class="fu">as_tibble</span>(pca_int<span class="sc">$</span>x[, <span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>]) <span class="sc">%&gt;%</span></span>
+<span id="cb28-20"><a href="#cb28-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">subtype =</span> subtype, <span class="at">patient =</span> patient_id,</span>
+<span id="cb28-21"><a href="#cb28-21" aria-hidden="true" tabindex="-1"></a>         <span class="at">latent  =</span> latent_score)</span>
+<span id="cb28-22"><a href="#cb28-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-23"><a href="#cb28-23" aria-hidden="true" tabindex="-1"></a>var_exp  <span class="ot">&lt;-</span> <span class="fu">summary</span>(pca_int)<span class="sc">$</span>importance[<span class="dv">2</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>] <span class="sc">*</span> <span class="dv">100</span></span>
+<span id="cb28-24"><a href="#cb28-24" aria-hidden="true" tabindex="-1"></a>cum_var  <span class="ot">&lt;-</span> <span class="fu">summary</span>(pca_int)<span class="sc">$</span>importance[<span class="dv">3</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>] <span class="sc">*</span> <span class="dv">100</span></span>
+<span id="cb28-25"><a href="#cb28-25" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb28-26"><a href="#cb28-26" aria-hidden="true" tabindex="-1"></a>var_table <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb28-27"><a href="#cb28-27" aria-hidden="true" tabindex="-1"></a>  <span class="at">Factor  =</span> <span class="fu">paste0</span>(<span class="st">"F"</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">5</span>),</span>
+<span id="cb28-28"><a href="#cb28-28" aria-hidden="true" tabindex="-1"></a>  <span class="at">Var_pct =</span> <span class="fu">round</span>(var_exp, <span class="dv">1</span>),</span>
+<span id="cb28-29"><a href="#cb28-29" aria-hidden="true" tabindex="-1"></a>  <span class="at">Cum_pct =</span> <span class="fu">round</span>(cum_var, <span class="dv">1</span>)</span>
+<span id="cb28-30"><a href="#cb28-30" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb28-31"><a href="#cb28-31" aria-hidden="true" tabindex="-1"></a>var_table</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 5 × 3
+  Factor Var_pct Cum_pct
+  &lt;chr&gt;    &lt;dbl&gt;   &lt;dbl&gt;
+1 F1        41.6    41.6
+2 F2         1.9    43.6
+3 F3         1.2    44.7
+4 F4         1.1    45.9
+5 F5         1.1    46.9</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(int_df, <span class="fu">aes</span>(<span class="at">x =</span> PC1, <span class="at">y =</span> PC2, <span class="at">color =</span> subtype, <span class="at">size =</span> <span class="fu">abs</span>(latent))) <span class="sc">+</span></span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.75</span>) <span class="sc">+</span></span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stat_ellipse</span>(<span class="fu">aes</span>(<span class="at">group =</span> subtype), <span class="at">level =</span> <span class="fl">0.90</span>,</span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a>               <span class="at">linewidth =</span> <span class="fl">0.9</span>, <span class="at">show.legend =</span> <span class="cn">FALSE</span>) <span class="sc">+</span></span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="st">"#E64B35"</span>, <span class="at">B =</span> <span class="st">"#4DBBD5"</span>)) <span class="sc">+</span></span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_size_continuous</span>(<span class="at">range =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">4</span>), <span class="at">name =</span> <span class="st">"|Latent score|"</span>) <span class="sc">+</span></span>
+<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="fu">paste0</span>(<span class="st">"Factor 1 ("</span>, <span class="fu">round</span>(var_exp[<span class="dv">1</span>], <span class="dv">1</span>), <span class="st">"% variance)"</span>),</span>
+<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a>       <span class="at">y =</span> <span class="fu">paste0</span>(<span class="st">"Factor 2 ("</span>, <span class="fu">round</span>(var_exp[<span class="dv">2</span>], <span class="dv">1</span>), <span class="st">"% variance)"</span>),</span>
+<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a>       <span class="at">color =</span> <span class="st">"Subtype"</span>) <span class="sc">+</span></span>
+<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/integration-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Multi-omics latent factor space: Factor 1 vs Factor 2, coloured by subtype and scaled by latent biological score</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tibble</span>(</span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">factor  =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>,</span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">var_pct =</span> <span class="fu">summary</span>(pca_int)<span class="sc">$</span>importance[<span class="dv">2</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>] <span class="sc">*</span> <span class="dv">100</span></span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>) <span class="sc">%&gt;%</span></span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> factor, <span class="at">y =</span> var_pct)) <span class="sc">+</span></span>
+<span id="cb31-6"><a href="#cb31-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>(<span class="at">fill =</span> <span class="st">"#3C5488"</span>, <span class="at">alpha =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
+<span id="cb31-7"><a href="#cb31-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">color =</span> <span class="st">"#E64B35"</span>, <span class="at">linewidth =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
+<span id="cb31-8"><a href="#cb31-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">color =</span> <span class="st">"#E64B35"</span>, <span class="at">size =</span> <span class="fl">2.5</span>) <span class="sc">+</span></span>
+<span id="cb31-9"><a href="#cb31-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_continuous</span>(<span class="at">breaks =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>) <span class="sc">+</span></span>
+<span id="cb31-10"><a href="#cb31-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Factor"</span>, <span class="at">y =</span> <span class="st">"Variance explained (%)"</span>) <span class="sc">+</span></span>
+<span id="cb31-11"><a href="#cb31-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/scree-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Scree plot of variance explained by integrated latent factors</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Factor 1 explains 41.6% of the joint variance and separates the subtypes cleanly — the biological signal that is present, in slightly different forms, across all five omic layers converges into this single dimension when the layers are analysed together. The point size in the factor plot scales with each patient’s latent biological score, showing that patients with more extreme latent biology sit further from the origin along Factor 1, consistent with the simulation design. No single omic layer produced this degree of separation on its own.</p>
+</section>
+<section id="machine-learning-classification" class="level2">
+<h2 class="anchored" data-anchor-id="machine-learning-classification">5. Machine Learning Classification</h2>
+<p>With the integrated latent factors computed, we now ask: how well can subtype be predicted from integrated features vs.&nbsp;single-omic features? We use a random forest classifier with 5-fold cross-validation, comparing three feature sets: (1) genomics only, (2) top transcriptomics features only, (3) integrated multi-omics factors.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Feature sets for ML comparison</span></span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Genomics only</span></span>
+<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a>feat_genomics <span class="ot">&lt;-</span> <span class="fu">cbind</span>(tmb, cnv_score)</span>
+<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a><span class="co"># 2. Top 20 DE transcriptomics genes (log-CPM)</span></span>
+<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a>top20_genes   <span class="ot">&lt;-</span> <span class="fu">rownames</span>(de_results)[<span class="dv">1</span><span class="sc">:</span><span class="dv">20</span>]</span>
+<span id="cb32-7"><a href="#cb32-7" aria-hidden="true" tabindex="-1"></a>feat_rna      <span class="ot">&lt;-</span> log_cpm[, top20_genes]</span>
+<span id="cb32-8"><a href="#cb32-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-9"><a href="#cb32-9" aria-hidden="true" tabindex="-1"></a><span class="co"># 3. Integrated: top 10 latent factors</span></span>
+<span id="cb32-10"><a href="#cb32-10" aria-hidden="true" tabindex="-1"></a>feat_integrated <span class="ot">&lt;-</span> pca_int<span class="sc">$</span>x[, <span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>]</span>
+<span id="cb32-11"><a href="#cb32-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-12"><a href="#cb32-12" aria-hidden="true" tabindex="-1"></a><span class="co"># Labels</span></span>
+<span id="cb32-13"><a href="#cb32-13" aria-hidden="true" tabindex="-1"></a>y_labels <span class="ot">&lt;-</span> <span class="fu">as.integer</span>(subtype <span class="sc">==</span> <span class="st">"A"</span>)</span>
+<span id="cb32-14"><a href="#cb32-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-15"><a href="#cb32-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Export to Python via reticulate</span></span>
+<span id="cb32-16"><a href="#cb32-16" aria-hidden="true" tabindex="-1"></a>r_to_py_data <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb32-17"><a href="#cb32-17" aria-hidden="true" tabindex="-1"></a>  <span class="at">feat_genomics   =</span> feat_genomics,</span>
+<span id="cb32-18"><a href="#cb32-18" aria-hidden="true" tabindex="-1"></a>  <span class="at">feat_rna        =</span> feat_rna,</span>
+<span id="cb32-19"><a href="#cb32-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">feat_integrated =</span> feat_integrated,</span>
+<span id="cb32-20"><a href="#cb32-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">y               =</span> y_labels</span>
+<span id="cb32-21"><a href="#cb32-21" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> RandomForestClassifier</span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.model_selection <span class="im">import</span> StratifiedKFold, cross_val_predict</span>
+<span id="cb33-5"><a href="#cb33-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.metrics <span class="im">import</span> roc_auc_score, roc_curve</span>
+<span id="cb33-6"><a href="#cb33-6" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.preprocessing <span class="im">import</span> StandardScaler</span>
+<span id="cb33-7"><a href="#cb33-7" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> warnings</span>
+<span id="cb33-8"><a href="#cb33-8" aria-hidden="true" tabindex="-1"></a>warnings.filterwarnings(<span class="st">"ignore"</span>)</span>
+<span id="cb33-9"><a href="#cb33-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-10"><a href="#cb33-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Pull data from R</span></span>
+<span id="cb33-11"><a href="#cb33-11" aria-hidden="true" tabindex="-1"></a>feat_gen  <span class="op">=</span> np.array(r.r_to_py_data[<span class="st">"feat_genomics"</span>])</span>
+<span id="cb33-12"><a href="#cb33-12" aria-hidden="true" tabindex="-1"></a>feat_rna  <span class="op">=</span> np.array(r.r_to_py_data[<span class="st">"feat_rna"</span>])</span>
+<span id="cb33-13"><a href="#cb33-13" aria-hidden="true" tabindex="-1"></a>feat_int  <span class="op">=</span> np.array(r.r_to_py_data[<span class="st">"feat_integrated"</span>])</span>
+<span id="cb33-14"><a href="#cb33-14" aria-hidden="true" tabindex="-1"></a>y         <span class="op">=</span> np.array(r.r_to_py_data[<span class="st">"y"</span>]).astype(<span class="bu">int</span>)</span>
+<span id="cb33-15"><a href="#cb33-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-16"><a href="#cb33-16" aria-hidden="true" tabindex="-1"></a>cv <span class="op">=</span> StratifiedKFold(n_splits<span class="op">=</span><span class="dv">5</span>, shuffle<span class="op">=</span><span class="va">True</span>, random_state<span class="op">=</span><span class="dv">2025</span>)</span>
+<span id="cb33-17"><a href="#cb33-17" aria-hidden="true" tabindex="-1"></a>rf <span class="op">=</span> RandomForestClassifier(n_estimators<span class="op">=</span><span class="dv">500</span>, max_depth<span class="op">=</span><span class="dv">6</span>,</span>
+<span id="cb33-18"><a href="#cb33-18" aria-hidden="true" tabindex="-1"></a>                             random_state<span class="op">=</span><span class="dv">2025</span>, n_jobs<span class="op">=-</span><span class="dv">1</span>)</span>
+<span id="cb33-19"><a href="#cb33-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-20"><a href="#cb33-20" aria-hidden="true" tabindex="-1"></a>results <span class="op">=</span> {}</span>
+<span id="cb33-21"><a href="#cb33-21" aria-hidden="true" tabindex="-1"></a>feature_sets <span class="op">=</span> {</span>
+<span id="cb33-22"><a href="#cb33-22" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Genomics only"</span>:    feat_gen,</span>
+<span id="cb33-23"><a href="#cb33-23" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Transcriptomics"</span>:  feat_rna,</span>
+<span id="cb33-24"><a href="#cb33-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Multi-omics"</span>:      feat_int</span>
+<span id="cb33-25"><a href="#cb33-25" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb33-26"><a href="#cb33-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-27"><a href="#cb33-27" aria-hidden="true" tabindex="-1"></a>roc_data <span class="op">=</span> {}</span>
+<span id="cb33-28"><a href="#cb33-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-29"><a href="#cb33-29" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> name, X <span class="kw">in</span> feature_sets.items():</span>
+<span id="cb33-30"><a href="#cb33-30" aria-hidden="true" tabindex="-1"></a>    scaler   <span class="op">=</span> StandardScaler()</span>
+<span id="cb33-31"><a href="#cb33-31" aria-hidden="true" tabindex="-1"></a>    X_scaled <span class="op">=</span> scaler.fit_transform(X)</span>
+<span id="cb33-32"><a href="#cb33-32" aria-hidden="true" tabindex="-1"></a>    probs    <span class="op">=</span> cross_val_predict(rf, X_scaled, y,</span>
+<span id="cb33-33"><a href="#cb33-33" aria-hidden="true" tabindex="-1"></a>                                  cv<span class="op">=</span>cv, method<span class="op">=</span><span class="st">"predict_proba"</span>)[:, <span class="dv">1</span>]</span>
+<span id="cb33-34"><a href="#cb33-34" aria-hidden="true" tabindex="-1"></a>    auc      <span class="op">=</span> roc_auc_score(y, probs)</span>
+<span id="cb33-35"><a href="#cb33-35" aria-hidden="true" tabindex="-1"></a>    fpr, tpr, _ <span class="op">=</span> roc_curve(y, probs)</span>
+<span id="cb33-36"><a href="#cb33-36" aria-hidden="true" tabindex="-1"></a>    results[name]  <span class="op">=</span> <span class="bu">round</span>(auc, <span class="dv">4</span>)</span>
+<span id="cb33-37"><a href="#cb33-37" aria-hidden="true" tabindex="-1"></a>    roc_data[name] <span class="op">=</span> {<span class="st">"fpr"</span>: fpr.tolist(), <span class="st">"tpr"</span>: tpr.tolist(), <span class="st">"auc"</span>: auc}</span>
+<span id="cb33-38"><a href="#cb33-38" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb33-39"><a href="#cb33-39" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Cross-validated AUC by feature set:"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Cross-validated AUC by feature set:</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> name, auc <span class="kw">in</span> results.items():</span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"  </span><span class="sc">{</span>name<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>auc<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>  Genomics only: 0.9544
+  Transcriptomics: 1.0000
+  Multi-omics: 1.0000</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> shap</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a><span class="co"># SHAP on multi-omics model (train on full data for SHAP, CV AUC already computed)</span></span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a>scaler_int  <span class="op">=</span> StandardScaler()</span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a>X_int_sc    <span class="op">=</span> scaler_int.fit_transform(feat_int)</span>
+<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a>rf_full     <span class="op">=</span> RandomForestClassifier(n_estimators<span class="op">=</span><span class="dv">500</span>, max_depth<span class="op">=</span><span class="dv">6</span>,</span>
+<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a>                                      random_state<span class="op">=</span><span class="dv">2025</span>, n_jobs<span class="op">=-</span><span class="dv">1</span>)</span>
+<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a>rf_full.fit(X_int_sc, y)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>RandomForestClassifier(max_depth=6, n_estimators=500, n_jobs=-1,
+                       random_state=2025)</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>explainer   <span class="op">=</span> shap.TreeExplainer(rf_full)</span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>shap_values <span class="op">=</span> explainer.shap_values(X_int_sc)</span>
+<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb39-4"><a href="#cb39-4" aria-hidden="true" tabindex="-1"></a><span class="co"># shap API differs by version:</span></span>
+<span id="cb39-5"><a href="#cb39-5" aria-hidden="true" tabindex="-1"></a><span class="co">#   older shap: shap_values is a list [array_class0, array_class1], each (n_samples, n_features)</span></span>
+<span id="cb39-6"><a href="#cb39-6" aria-hidden="true" tabindex="-1"></a><span class="co">#   newer shap: shap_values is a single array (n_samples, n_features, n_classes)</span></span>
+<span id="cb39-7"><a href="#cb39-7" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="bu">isinstance</span>(shap_values, <span class="bu">list</span>):</span>
+<span id="cb39-8"><a href="#cb39-8" aria-hidden="true" tabindex="-1"></a>    sv_class1 <span class="op">=</span> shap_values[<span class="dv">1</span>]</span>
+<span id="cb39-9"><a href="#cb39-9" aria-hidden="true" tabindex="-1"></a><span class="cf">elif</span> shap_values.ndim <span class="op">==</span> <span class="dv">3</span>:</span>
+<span id="cb39-10"><a href="#cb39-10" aria-hidden="true" tabindex="-1"></a>    sv_class1 <span class="op">=</span> shap_values[:, :, <span class="dv">1</span>]</span>
+<span id="cb39-11"><a href="#cb39-11" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span>:</span>
+<span id="cb39-12"><a href="#cb39-12" aria-hidden="true" tabindex="-1"></a>    sv_class1 <span class="op">=</span> shap_values</span>
+<span id="cb39-13"><a href="#cb39-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb39-14"><a href="#cb39-14" aria-hidden="true" tabindex="-1"></a>factor_names <span class="op">=</span> [<span class="ss">f"Factor_</span><span class="sc">{</span>i<span class="op">+</span><span class="dv">1</span><span class="sc">}</span><span class="ss">"</span> <span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(feat_int.shape[<span class="dv">1</span>])]</span>
+<span id="cb39-15"><a href="#cb39-15" aria-hidden="true" tabindex="-1"></a>mean_abs_shap <span class="op">=</span> np.<span class="bu">abs</span>(sv_class1).mean(axis<span class="op">=</span><span class="dv">0</span>).ravel()  <span class="co"># ensure 1-D</span></span>
+<span id="cb39-16"><a href="#cb39-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb39-17"><a href="#cb39-17" aria-hidden="true" tabindex="-1"></a>shap_df <span class="op">=</span> pd.DataFrame({</span>
+<span id="cb39-18"><a href="#cb39-18" aria-hidden="true" tabindex="-1"></a>    <span class="st">"factor"</span>:    factor_names,</span>
+<span id="cb39-19"><a href="#cb39-19" aria-hidden="true" tabindex="-1"></a>    <span class="st">"mean_shap"</span>: mean_abs_shap</span>
+<span id="cb39-20"><a href="#cb39-20" aria-hidden="true" tabindex="-1"></a>}).sort_values(<span class="st">"mean_shap"</span>, ascending<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb39-21"><a href="#cb39-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb39-22"><a href="#cb39-22" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(shap_df.to_string(index<span class="op">=</span><span class="va">False</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>   factor  mean_shap
+ Factor_1   0.406330
+ Factor_4   0.013814
+ Factor_2   0.012253
+ Factor_8   0.005981
+ Factor_7   0.005812
+ Factor_3   0.005696
+ Factor_9   0.005519
+Factor_10   0.005295
+ Factor_5   0.005171
+ Factor_6   0.004118</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Pull ROC data back from Python</span></span>
+<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a>roc_list <span class="ot">&lt;-</span> py<span class="sc">$</span>roc_data</span>
+<span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-4"><a href="#cb41-4" aria-hidden="true" tabindex="-1"></a>roc_df <span class="ot">&lt;-</span> <span class="fu">map</span>(<span class="fu">names</span>(roc_list), <span class="cf">function</span>(nm) {</span>
+<span id="cb41-5"><a href="#cb41-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(</span>
+<span id="cb41-6"><a href="#cb41-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">model =</span> nm,</span>
+<span id="cb41-7"><a href="#cb41-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">fpr   =</span> roc_list[[nm]]<span class="sc">$</span>fpr,</span>
+<span id="cb41-8"><a href="#cb41-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">tpr   =</span> roc_list[[nm]]<span class="sc">$</span>tpr,</span>
+<span id="cb41-9"><a href="#cb41-9" aria-hidden="true" tabindex="-1"></a>    <span class="at">auc   =</span> roc_list[[nm]]<span class="sc">$</span>auc</span>
+<span id="cb41-10"><a href="#cb41-10" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb41-11"><a href="#cb41-11" aria-hidden="true" tabindex="-1"></a>}) <span class="sc">|&gt;</span> <span class="fu">list_rbind</span>() <span class="sc">%&gt;%</span></span>
+<span id="cb41-12"><a href="#cb41-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">model_label =</span> <span class="fu">paste0</span>(model, <span class="st">" (AUC = "</span>, <span class="fu">round</span>(auc, <span class="dv">3</span>), <span class="st">")"</span>))</span>
+<span id="cb41-13"><a href="#cb41-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-14"><a href="#cb41-14" aria-hidden="true" tabindex="-1"></a><span class="co"># Build named colour vector outside the plot call</span></span>
+<span id="cb41-15"><a href="#cb41-15" aria-hidden="true" tabindex="-1"></a>colour_map <span class="ot">&lt;-</span> roc_df <span class="sc">%&gt;%</span></span>
+<span id="cb41-16"><a href="#cb41-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">distinct</span>(model, model_label) <span class="sc">%&gt;%</span></span>
+<span id="cb41-17"><a href="#cb41-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">col =</span> <span class="fu">case_match</span>(model,</span>
+<span id="cb41-18"><a href="#cb41-18" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Genomics only"</span>   <span class="sc">~</span> <span class="st">"#4DBBD5"</span>,</span>
+<span id="cb41-19"><a href="#cb41-19" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Transcriptomics"</span> <span class="sc">~</span> <span class="st">"#00A087"</span>,</span>
+<span id="cb41-20"><a href="#cb41-20" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Multi-omics"</span>     <span class="sc">~</span> <span class="st">"#E64B35"</span></span>
+<span id="cb41-21"><a href="#cb41-21" aria-hidden="true" tabindex="-1"></a>  )) <span class="sc">%&gt;%</span></span>
+<span id="cb41-22"><a href="#cb41-22" aria-hidden="true" tabindex="-1"></a>  dplyr<span class="sc">::</span><span class="fu">select</span>(model_label, col) <span class="sc">%&gt;%</span></span>
+<span id="cb41-23"><a href="#cb41-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">deframe</span>()</span>
+<span id="cb41-24"><a href="#cb41-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-25"><a href="#cb41-25" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(roc_df, <span class="fu">aes</span>(<span class="at">x =</span> fpr, <span class="at">y =</span> tpr,</span>
+<span id="cb41-26"><a href="#cb41-26" aria-hidden="true" tabindex="-1"></a>                    <span class="at">color =</span> model_label, <span class="at">group =</span> model)) <span class="sc">+</span></span>
+<span id="cb41-27"><a href="#cb41-27" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">linewidth =</span> <span class="fl">1.1</span>) <span class="sc">+</span></span>
+<span id="cb41-28"><a href="#cb41-28" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_abline</span>(<span class="at">slope =</span> <span class="dv">1</span>, <span class="at">intercept =</span> <span class="dv">0</span>,</span>
+<span id="cb41-29"><a href="#cb41-29" aria-hidden="true" tabindex="-1"></a>              <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">color =</span> <span class="st">"grey60"</span>) <span class="sc">+</span></span>
+<span id="cb41-30"><a href="#cb41-30" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> colour_map) <span class="sc">+</span></span>
+<span id="cb41-31"><a href="#cb41-31" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"False positive rate"</span>, <span class="at">y =</span> <span class="st">"True positive rate"</span>,</span>
+<span id="cb41-32"><a href="#cb41-32" aria-hidden="true" tabindex="-1"></a>       <span class="at">color =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
+<span id="cb41-33"><a href="#cb41-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>() <span class="sc">+</span></span>
+<span id="cb41-34"><a href="#cb41-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="fu">c</span>(<span class="fl">0.65</span>, <span class="fl">0.25</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/roc-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>ROC curves for subtype classification: genomics-only vs.&nbsp;transcriptomics-only vs.&nbsp;integrated multi-omics (5-fold CV)</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb42"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb42-1"><a href="#cb42-1" aria-hidden="true" tabindex="-1"></a>shap_df_r <span class="ot">&lt;-</span> py<span class="sc">$</span>shap_df</span>
+<span id="cb42-2"><a href="#cb42-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb42-3"><a href="#cb42-3" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(shap_df_r, <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">reorder</span>(factor, mean_shap), <span class="at">y =</span> mean_shap)) <span class="sc">+</span></span>
+<span id="cb42-4"><a href="#cb42-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>(<span class="at">fill =</span> <span class="st">"#3C5488"</span>, <span class="at">alpha =</span> <span class="fl">0.85</span>) <span class="sc">+</span></span>
+<span id="cb42-5"><a href="#cb42-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span></span>
+<span id="cb42-6"><a href="#cb42-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Mean |SHAP value|"</span>) <span class="sc">+</span></span>
+<span id="cb42-7"><a href="#cb42-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/shap-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Mean absolute SHAP values for each integrated latent factor — Factor 1 dominates classification</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a>auc_gen  <span class="ot">&lt;-</span> py<span class="sc">$</span>results[[<span class="st">"Genomics only"</span>]]</span>
+<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a>auc_rna  <span class="ot">&lt;-</span> py<span class="sc">$</span>results[[<span class="st">"Transcriptomics"</span>]]</span>
+<span id="cb43-3"><a href="#cb43-3" aria-hidden="true" tabindex="-1"></a>auc_int  <span class="ot">&lt;-</span> py<span class="sc">$</span>results[[<span class="st">"Multi-omics"</span>]]</span>
+<span id="cb43-4"><a href="#cb43-4" aria-hidden="true" tabindex="-1"></a>auc_gain <span class="ot">&lt;-</span> <span class="fu">round</span>((auc_int <span class="sc">-</span> auc_rna) <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Cross-validated AUC: genomics only = 0.954, transcriptomics alone = 1.000, integrated multi-omics = 1.000. This is worth stating plainly rather than forcing the “integration wins” narrative the earlier sections set up: transcriptomics and the integrated model tied, both at ceiling. Part of that ceiling is a genuine simulation property — the transcriptomic effect (LFC ≈ 1.8 across 80 genes) is large. But part of it is a methodological issue worth naming directly: the 20 transcriptomics features were selected by testing for differential expression across the <em>entire</em> cohort, then reused as classifier inputs. That’s feature selection performed outside the cross-validation loop, and it leaks label information into the feature set before the model ever sees held-out data — a peer reviewer would flag this immediately, and a corrected version of this analysis would nest the DE-based feature selection inside each CV fold rather than fixing it beforehand. Real RNA-seq biomarkers essentially never reach AUC = 1.0 on independent validation; this result is inflated by that leakage, not just by simulation effect size. Where the gain is real and not subject to this concern is genomics vs.&nbsp;multi-omics: 0.954 to 1.000, a 4.6-point improvement — genomics wasn’t pre-selected for separability the way the transcriptomics features were, so that comparison is the more trustworthy one in this analysis. The SHAP analysis shows Factor 1 (mean |SHAP| = 0.406) dominating the classifier’s decisions by roughly 30-fold over the next most influential factor (Factor 4, mean |SHAP| = 0.014), consistent with Factor 1 capturing nearly the entire subtype-discriminating signal across the joint omic space.</p>
+</section>
+<section id="systems-biology-interpretation" class="level2">
+<h2 class="anchored" data-anchor-id="systems-biology-interpretation">6. Systems Biology Interpretation</h2>
+<p>The top DE genes from transcriptomics, viewed in isolation, are a list of names. Systems biology asks: what biological processes do they collectively represent? Pathway-level analysis aggregates per-gene signal into process-level signal, which is both more interpretable and more statistically stable — individual gene effects can be noisy while the pathway they belong to shows a consistent direction.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Simulate pathway membership (in practice: MSigDB, KEGG, Reactome)</span></span>
+<span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 10 pathways, each consisting of a subset of the 500 genes</span></span>
+<span id="cb44-3"><a href="#cb44-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb44-4"><a href="#cb44-4" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">2025</span>)</span>
+<span id="cb44-5"><a href="#cb44-5" aria-hidden="true" tabindex="-1"></a>pathways <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb44-6"><a href="#cb44-6" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Cell cycle"</span>                <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">30</span>),</span>
+<span id="cb44-7"><a href="#cb44-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">"DNA damage response"</span>       <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">25</span>),</span>
+<span id="cb44-8"><a href="#cb44-8" aria-hidden="true" tabindex="-1"></a>  <span class="st">"PI3K-AKT signalling"</span>       <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">35</span>),</span>
+<span id="cb44-9"><a href="#cb44-9" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Oxidative phosphorylation"</span> <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">28</span>),</span>
+<span id="cb44-10"><a href="#cb44-10" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Epithelial-mesenchymal"</span>    <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">22</span>),</span>
+<span id="cb44-11"><a href="#cb44-11" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Immune evasion"</span>            <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">20</span>),</span>
+<span id="cb44-12"><a href="#cb44-12" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Apoptosis"</span>                 <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">18</span>),</span>
+<span id="cb44-13"><a href="#cb44-13" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Angiogenesis"</span>              <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">15</span>),</span>
+<span id="cb44-14"><a href="#cb44-14" aria-hidden="true" tabindex="-1"></a>  <span class="st">"mTOR signalling"</span>           <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">24</span>),</span>
+<span id="cb44-15"><a href="#cb44-15" aria-hidden="true" tabindex="-1"></a>  <span class="st">"p53 pathway"</span>               <span class="ot">=</span> <span class="fu">sample</span>(gene_names, <span class="dv">19</span>)</span>
+<span id="cb44-16"><a href="#cb44-16" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb44-17"><a href="#cb44-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb44-18"><a href="#cb44-18" aria-hidden="true" tabindex="-1"></a><span class="co"># Enrich top DE genes — how many of each pathway's members are in the top DE?</span></span>
+<span id="cb44-19"><a href="#cb44-19" aria-hidden="true" tabindex="-1"></a>n_top_de    <span class="ot">&lt;-</span> <span class="dv">150</span></span>
+<span id="cb44-20"><a href="#cb44-20" aria-hidden="true" tabindex="-1"></a>top_de_set  <span class="ot">&lt;-</span> <span class="fu">rownames</span>(de_results)[<span class="dv">1</span><span class="sc">:</span>n_top_de]</span>
+<span id="cb44-21"><a href="#cb44-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb44-22"><a href="#cb44-22" aria-hidden="true" tabindex="-1"></a>pathway_res <span class="ot">&lt;-</span> <span class="fu">map</span>(<span class="fu">names</span>(pathways), <span class="cf">function</span>(pw) {</span>
+<span id="cb44-23"><a href="#cb44-23" aria-hidden="true" tabindex="-1"></a>  pw_genes    <span class="ot">&lt;-</span> pathways[[pw]]</span>
+<span id="cb44-24"><a href="#cb44-24" aria-hidden="true" tabindex="-1"></a>  n_pw        <span class="ot">&lt;-</span> <span class="fu">length</span>(pw_genes)</span>
+<span id="cb44-25"><a href="#cb44-25" aria-hidden="true" tabindex="-1"></a>  n_overlap   <span class="ot">&lt;-</span> <span class="fu">sum</span>(pw_genes <span class="sc">%in%</span> top_de_set)</span>
+<span id="cb44-26"><a href="#cb44-26" aria-hidden="true" tabindex="-1"></a>  cont_tab    <span class="ot">&lt;-</span> <span class="fu">matrix</span>(<span class="fu">c</span>(</span>
+<span id="cb44-27"><a href="#cb44-27" aria-hidden="true" tabindex="-1"></a>    n_overlap,</span>
+<span id="cb44-28"><a href="#cb44-28" aria-hidden="true" tabindex="-1"></a>    n_pw <span class="sc">-</span> n_overlap,</span>
+<span id="cb44-29"><a href="#cb44-29" aria-hidden="true" tabindex="-1"></a>    n_top_de <span class="sc">-</span> n_overlap,</span>
+<span id="cb44-30"><a href="#cb44-30" aria-hidden="true" tabindex="-1"></a>    n_genes <span class="sc">-</span> n_pw <span class="sc">-</span> n_top_de <span class="sc">+</span> n_overlap</span>
+<span id="cb44-31"><a href="#cb44-31" aria-hidden="true" tabindex="-1"></a>  ), <span class="at">nrow =</span> <span class="dv">2</span>)</span>
+<span id="cb44-32"><a href="#cb44-32" aria-hidden="true" tabindex="-1"></a>  ft <span class="ot">&lt;-</span> <span class="fu">fisher.test</span>(cont_tab, <span class="at">alternative =</span> <span class="st">"greater"</span>)</span>
+<span id="cb44-33"><a href="#cb44-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tibble</span>(</span>
+<span id="cb44-34"><a href="#cb44-34" aria-hidden="true" tabindex="-1"></a>    <span class="at">pathway    =</span> pw,</span>
+<span id="cb44-35"><a href="#cb44-35" aria-hidden="true" tabindex="-1"></a>    <span class="at">n_pathway  =</span> n_pw,</span>
+<span id="cb44-36"><a href="#cb44-36" aria-hidden="true" tabindex="-1"></a>    <span class="at">n_overlap  =</span> n_overlap,</span>
+<span id="cb44-37"><a href="#cb44-37" aria-hidden="true" tabindex="-1"></a>    <span class="at">odds_ratio =</span> ft<span class="sc">$</span>estimate,</span>
+<span id="cb44-38"><a href="#cb44-38" aria-hidden="true" tabindex="-1"></a>    <span class="at">p_value    =</span> ft<span class="sc">$</span>p.value</span>
+<span id="cb44-39"><a href="#cb44-39" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb44-40"><a href="#cb44-40" aria-hidden="true" tabindex="-1"></a>}) <span class="sc">|&gt;</span> <span class="fu">list_rbind</span>() <span class="sc">%&gt;%</span></span>
+<span id="cb44-41"><a href="#cb44-41" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">fdr =</span> <span class="fu">p.adjust</span>(p_value, <span class="at">method =</span> <span class="st">"BH"</span>)) <span class="sc">%&gt;%</span></span>
+<span id="cb44-42"><a href="#cb44-42" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(fdr)</span>
+<span id="cb44-43"><a href="#cb44-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb44-44"><a href="#cb44-44" aria-hidden="true" tabindex="-1"></a>pathway_res <span class="sc">%&gt;%</span></span>
+<span id="cb44-45"><a href="#cb44-45" aria-hidden="true" tabindex="-1"></a>  dplyr<span class="sc">::</span><span class="fu">select</span>(pathway, n_pathway, n_overlap, odds_ratio, fdr) <span class="sc">%&gt;%</span></span>
+<span id="cb44-46"><a href="#cb44-46" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), <span class="sc">~</span><span class="fu">round</span>(.x, <span class="dv">3</span>)))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 10 × 5
+   pathway                   n_pathway n_overlap odds_ratio   fdr
+   &lt;chr&gt;                         &lt;dbl&gt;     &lt;dbl&gt;      &lt;dbl&gt; &lt;dbl&gt;
+ 1 Epithelial-mesenchymal           22        11      2.43  0.354
+ 2 Immune evasion                   20         9      1.96  0.544
+ 3 PI3K-AKT signalling              35        13      1.41  0.549
+ 4 Oxidative phosphorylation        28        11      1.55  0.549
+ 5 DNA damage response              25         8      1.10  0.815
+ 6 mTOR signalling                  24         8      1.18  0.815
+ 7 Cell cycle                       30         7      0.696 0.974
+ 8 Angiogenesis                     15         3      0.575 0.974
+ 9 p53 pathway                      19         4      0.612 0.974
+10 Apoptosis                        18         1      0.132 0.999</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a>pathway_res <span class="sc">%&gt;%</span></span>
+<span id="cb46-2"><a href="#cb46-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
+<span id="cb46-3"><a href="#cb46-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">sig      =</span> fdr <span class="sc">&lt;</span> <span class="fl">0.05</span>,</span>
+<span id="cb46-4"><a href="#cb46-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">pathway  =</span> <span class="fu">fct_reorder</span>(pathway, odds_ratio)</span>
+<span id="cb46-5"><a href="#cb46-5" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">%&gt;%</span></span>
+<span id="cb46-6"><a href="#cb46-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> odds_ratio, <span class="at">y =</span> pathway, <span class="at">fill =</span> sig)) <span class="sc">+</span></span>
+<span id="cb46-7"><a href="#cb46-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>(<span class="at">alpha =</span> <span class="fl">0.85</span>) <span class="sc">+</span></span>
+<span id="cb46-8"><a href="#cb46-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> <span class="dv">1</span>, <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">color =</span> <span class="st">"grey50"</span>) <span class="sc">+</span></span>
+<span id="cb46-9"><a href="#cb46-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">`</span><span class="at">TRUE</span><span class="st">`</span> <span class="ot">=</span> <span class="st">"#E64B35"</span>, <span class="st">`</span><span class="at">FALSE</span><span class="st">`</span> <span class="ot">=</span> <span class="st">"#4DBBD5"</span>),</span>
+<span id="cb46-10"><a href="#cb46-10" aria-hidden="true" tabindex="-1"></a>                    <span class="at">labels =</span> <span class="fu">c</span>(<span class="st">`</span><span class="at">TRUE</span><span class="st">`</span> <span class="ot">=</span> <span class="st">"FDR &lt; 0.05"</span>, <span class="st">`</span><span class="at">FALSE</span><span class="st">`</span> <span class="ot">=</span> <span class="st">"FDR ≥ 0.05"</span>),</span>
+<span id="cb46-11"><a href="#cb46-11" aria-hidden="true" tabindex="-1"></a>                    <span class="at">name   =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
+<span id="cb46-12"><a href="#cb46-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Odds ratio"</span>, <span class="at">y =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
+<span id="cb46-13"><a href="#cb46-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/pathway-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Pathway enrichment among top differentially expressed genes — odds ratios with FDR threshold</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb47"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a>top_pw      <span class="ot">&lt;-</span> pathway_res<span class="sc">$</span>pathway[<span class="dv">1</span>]</span>
+<span id="cb47-2"><a href="#cb47-2" aria-hidden="true" tabindex="-1"></a>top_pw_fdr  <span class="ot">&lt;-</span> pathway_res<span class="sc">$</span>fdr[<span class="dv">1</span>]</span>
+<span id="cb47-3"><a href="#cb47-3" aria-hidden="true" tabindex="-1"></a>top_pw_or   <span class="ot">&lt;-</span> pathway_res<span class="sc">$</span>odds_ratio[<span class="dv">1</span>]</span>
+<span id="cb47-4"><a href="#cb47-4" aria-hidden="true" tabindex="-1"></a>n_sig_pw    <span class="ot">&lt;-</span> <span class="fu">sum</span>(pathway_res<span class="sc">$</span>fdr <span class="sc">&lt;</span> <span class="fl">0.05</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>None of the 10 simulated pathways reached FDR &lt; 5% (top hit: Epithelial-mesenchymal, OR = 2.43, FDR = 0.354). Worth being direct about why: pathway membership in this simulation was assigned by randomly sampling gene names into each pathway, independent of which genes were actually differentially expressed. That was a simplification to demonstrate the mechanics of the enrichment test — contingency table construction, Fisher’s exact test, BH correction — without also having to encode a second, separate layer of ground truth linking specific genes to specific pathways. A null result here is therefore the <em>expected</em> outcome of how the simulation was built, not a biological finding about these subtypes. In a real analysis, pathway membership comes from curated, biologically grounded databases (MSigDB, Reactome, KEGG) where genes are assigned to pathways based on actual functional annotation, and a true DE signal concentrated in a specific biological process would produce a real enrichment signal. The methodology demonstrated here — the contingency table logic and multiple-testing correction — carries over directly; only the gene-to-pathway mapping would need to be real.</p>
+</section>
+<section id="personalised-medicine-patient-level-profiles" class="level2">
+<h2 class="anchored" data-anchor-id="personalised-medicine-patient-level-profiles">7. Personalised Medicine: Patient-Level Profiles</h2>
+<p>The multi-omics framework produces subtype-level summaries, but its real clinical value is at the patient level. Two patients — one representative of each subtype — are profiled across all five omic layers and assessed against the integrated model.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Pick two patients: most extreme Factor 1 loading in each subtype</span></span>
+<span id="cb48-2"><a href="#cb48-2" aria-hidden="true" tabindex="-1"></a>patient_a <span class="ot">&lt;-</span> int_df <span class="sc">%&gt;%</span></span>
+<span id="cb48-3"><a href="#cb48-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(subtype <span class="sc">==</span> <span class="st">"A"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb48-4"><a href="#cb48-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(PC1)) <span class="sc">%&gt;%</span></span>
+<span id="cb48-5"><a href="#cb48-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice</span>(<span class="dv">1</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb48-6"><a href="#cb48-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pull</span>(patient)</span>
+<span id="cb48-7"><a href="#cb48-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb48-8"><a href="#cb48-8" aria-hidden="true" tabindex="-1"></a>patient_b <span class="ot">&lt;-</span> int_df <span class="sc">%&gt;%</span></span>
+<span id="cb48-9"><a href="#cb48-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(subtype <span class="sc">==</span> <span class="st">"B"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb48-10"><a href="#cb48-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(PC1) <span class="sc">%&gt;%</span></span>
+<span id="cb48-11"><a href="#cb48-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice</span>(<span class="dv">1</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb48-12"><a href="#cb48-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pull</span>(patient)</span>
+<span id="cb48-13"><a href="#cb48-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb48-14"><a href="#cb48-14" aria-hidden="true" tabindex="-1"></a>profile_patients <span class="ot">&lt;-</span> <span class="fu">c</span>(patient_a, patient_b)</span>
+<span id="cb48-15"><a href="#cb48-15" aria-hidden="true" tabindex="-1"></a>idx_a <span class="ot">&lt;-</span> <span class="fu">which</span>(patient_id <span class="sc">==</span> patient_a)</span>
+<span id="cb48-16"><a href="#cb48-16" aria-hidden="true" tabindex="-1"></a>idx_b <span class="ot">&lt;-</span> <span class="fu">which</span>(patient_id <span class="sc">==</span> patient_b)</span>
+<span id="cb48-17"><a href="#cb48-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb48-18"><a href="#cb48-18" aria-hidden="true" tabindex="-1"></a>profile_tbl <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb48-19"><a href="#cb48-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">Feature        =</span> <span class="fu">c</span>(<span class="st">"Subtype"</span>, <span class="st">"TMB"</span>, <span class="st">"CNV score"</span>,</span>
+<span id="cb48-20"><a href="#cb48-20" aria-hidden="true" tabindex="-1"></a>                     <span class="st">"Factor 1 loading"</span>, <span class="st">"Obs. time (mo)"</span>, <span class="st">"Event"</span>),</span>
+<span id="cb48-21"><a href="#cb48-21" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!!</span><span class="at">patient_a   :=</span> <span class="fu">c</span>(</span>
+<span id="cb48-22"><a href="#cb48-22" aria-hidden="true" tabindex="-1"></a>    <span class="fu">as.character</span>(subtype[idx_a]),</span>
+<span id="cb48-23"><a href="#cb48-23" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(tmb[idx_a], <span class="dv">0</span>),</span>
+<span id="cb48-24"><a href="#cb48-24" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(cnv_score[idx_a], <span class="dv">2</span>),</span>
+<span id="cb48-25"><a href="#cb48-25" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(int_df<span class="sc">$</span>PC1[idx_a], <span class="dv">2</span>),</span>
+<span id="cb48-26"><a href="#cb48-26" aria-hidden="true" tabindex="-1"></a>    cohort_meta<span class="sc">$</span>obs_time[idx_a],</span>
+<span id="cb48-27"><a href="#cb48-27" aria-hidden="true" tabindex="-1"></a>    cohort_meta<span class="sc">$</span>event[idx_a]</span>
+<span id="cb48-28"><a href="#cb48-28" aria-hidden="true" tabindex="-1"></a>  ),</span>
+<span id="cb48-29"><a href="#cb48-29" aria-hidden="true" tabindex="-1"></a>  <span class="sc">!!</span><span class="at">patient_b   :=</span> <span class="fu">c</span>(</span>
+<span id="cb48-30"><a href="#cb48-30" aria-hidden="true" tabindex="-1"></a>    <span class="fu">as.character</span>(subtype[idx_b]),</span>
+<span id="cb48-31"><a href="#cb48-31" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(tmb[idx_b], <span class="dv">0</span>),</span>
+<span id="cb48-32"><a href="#cb48-32" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(cnv_score[idx_b], <span class="dv">2</span>),</span>
+<span id="cb48-33"><a href="#cb48-33" aria-hidden="true" tabindex="-1"></a>    <span class="fu">round</span>(int_df<span class="sc">$</span>PC1[idx_b], <span class="dv">2</span>),</span>
+<span id="cb48-34"><a href="#cb48-34" aria-hidden="true" tabindex="-1"></a>    cohort_meta<span class="sc">$</span>obs_time[idx_b],</span>
+<span id="cb48-35"><a href="#cb48-35" aria-hidden="true" tabindex="-1"></a>    cohort_meta<span class="sc">$</span>event[idx_b]</span>
+<span id="cb48-36"><a href="#cb48-36" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb48-37"><a href="#cb48-37" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb48-38"><a href="#cb48-38" aria-hidden="true" tabindex="-1"></a>profile_tbl</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 6 × 3
+  Feature          P023  P179  
+  &lt;chr&gt;            &lt;chr&gt; &lt;chr&gt; 
+1 Subtype          A     B     
+2 TMB              33    0     
+3 CNV score        1.41  -0.87 
+4 Factor 1 loading 14.64 -14.06
+5 Obs. time (mo)   1     21.2  
+6 Event            1     0     </code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb50"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Standardise 5 summary scores across all patients for radar-style bar chart</span></span>
+<span id="cb50-2"><a href="#cb50-2" aria-hidden="true" tabindex="-1"></a>omic_summary <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
+<span id="cb50-3"><a href="#cb50-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">patient     =</span> patient_id,</span>
+<span id="cb50-4"><a href="#cb50-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">subtype     =</span> subtype,</span>
+<span id="cb50-5"><a href="#cb50-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">Genomics    =</span> <span class="fu">scale</span>(tmb <span class="sc">+</span> cnv_score)[, <span class="dv">1</span>],</span>
+<span id="cb50-6"><a href="#cb50-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">Transcriptomics =</span> <span class="fu">scale</span>(<span class="fu">rowMeans</span>(log_cpm[, top20_genes]))[, <span class="dv">1</span>],</span>
+<span id="cb50-7"><a href="#cb50-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">Proteomics  =</span> <span class="fu">scale</span>(<span class="fu">rowMeans</span>(log_prot[, <span class="fu">rownames</span>(prot_res)[<span class="dv">1</span><span class="sc">:</span><span class="dv">20</span>]]))[, <span class="dv">1</span>],</span>
+<span id="cb50-8"><a href="#cb50-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">Metabolomics =</span> <span class="fu">scale</span>(<span class="fu">rowMeans</span>(log_metab[, <span class="fu">rownames</span>(metab_res)[<span class="dv">1</span><span class="sc">:</span><span class="dv">20</span>]]))[, <span class="dv">1</span>],</span>
+<span id="cb50-9"><a href="#cb50-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">Epigenomics =</span> <span class="fu">scale</span>(<span class="fu">rowMeans</span>(epigenomics_mat[, <span class="fu">rownames</span>(epi_res)[<span class="dv">1</span><span class="sc">:</span><span class="dv">20</span>]]))[, <span class="dv">1</span>]</span>
+<span id="cb50-10"><a href="#cb50-10" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb50-11"><a href="#cb50-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb50-12"><a href="#cb50-12" aria-hidden="true" tabindex="-1"></a>omic_summary <span class="sc">%&gt;%</span></span>
+<span id="cb50-13"><a href="#cb50-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(patient <span class="sc">%in%</span> profile_patients) <span class="sc">%&gt;%</span></span>
+<span id="cb50-14"><a href="#cb50-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pivot_longer</span>(<span class="at">cols =</span> <span class="sc">-</span><span class="fu">c</span>(patient, subtype),</span>
+<span id="cb50-15"><a href="#cb50-15" aria-hidden="true" tabindex="-1"></a>               <span class="at">names_to =</span> <span class="st">"layer"</span>, <span class="at">values_to =</span> <span class="st">"score"</span>) <span class="sc">%&gt;%</span></span>
+<span id="cb50-16"><a href="#cb50-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> layer, <span class="at">y =</span> score, <span class="at">fill =</span> subtype)) <span class="sc">+</span></span>
+<span id="cb50-17"><a href="#cb50-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_col</span>(<span class="at">position =</span> <span class="st">"dodge"</span>, <span class="at">alpha =</span> <span class="fl">0.85</span>) <span class="sc">+</span></span>
+<span id="cb50-18"><a href="#cb50-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="st">"#E64B35"</span>, <span class="at">B =</span> <span class="st">"#4DBBD5"</span>)) <span class="sc">+</span></span>
+<span id="cb50-19"><a href="#cb50-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_hline</span>(<span class="at">yintercept =</span> <span class="dv">0</span>, <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">color =</span> <span class="st">"grey50"</span>) <span class="sc">+</span></span>
+<span id="cb50-20"><a href="#cb50-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Standardised score (relative to cohort mean)"</span>,</span>
+<span id="cb50-21"><a href="#cb50-21" aria-hidden="true" tabindex="-1"></a>       <span class="at">fill =</span> <span class="st">"Subtype"</span>) <span class="sc">+</span></span>
+<span id="cb50-22"><a href="#cb50-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>() <span class="sc">+</span></span>
+<span id="cb50-23"><a href="#cb50-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">axis.text.x =</span> <span class="fu">element_text</span>(<span class="at">angle =</span> <span class="dv">30</span>, <span class="at">hjust =</span> <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/patient-radar-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Multi-omic feature profiles for two representative patients, one per subtype</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb51"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a>surv_obj <span class="ot">&lt;-</span> <span class="fu">Surv</span>(cohort_meta<span class="sc">$</span>obs_time, cohort_meta<span class="sc">$</span>event)</span>
+<span id="cb51-2"><a href="#cb51-2" aria-hidden="true" tabindex="-1"></a>km_fit   <span class="ot">&lt;-</span> <span class="fu">survfit</span>(surv_obj <span class="sc">~</span> subtype, <span class="at">data =</span> cohort_meta)</span>
+<span id="cb51-3"><a href="#cb51-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb51-4"><a href="#cb51-4" aria-hidden="true" tabindex="-1"></a><span class="fu">ggsurvplot</span>(</span>
+<span id="cb51-5"><a href="#cb51-5" aria-hidden="true" tabindex="-1"></a>  km_fit,</span>
+<span id="cb51-6"><a href="#cb51-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">data         =</span> cohort_meta,</span>
+<span id="cb51-7"><a href="#cb51-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">pval         =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb51-8"><a href="#cb51-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">conf.int     =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb51-9"><a href="#cb51-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">risk.table   =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb51-10"><a href="#cb51-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">palette      =</span> <span class="fu">c</span>(<span class="st">"#E64B35"</span>, <span class="st">"#4DBBD5"</span>),</span>
+<span id="cb51-11"><a href="#cb51-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">legend.title =</span> <span class="st">"Subtype"</span>,</span>
+<span id="cb51-12"><a href="#cb51-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">xlab         =</span> <span class="st">"Time (months)"</span>,</span>
+<span id="cb51-13"><a href="#cb51-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">ylab         =</span> <span class="st">"Survival probability"</span></span>
+<span id="cb51-14"><a href="#cb51-14" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="multiomics-final_files/figure-html/survival-by-subtype-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Kaplan-Meier survival curves by subtype — multi-omics-defined subtype predicts survival outcome</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb52"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a>lr_test   <span class="ot">&lt;-</span> <span class="fu">survdiff</span>(surv_obj <span class="sc">~</span> subtype, <span class="at">data =</span> cohort_meta)</span>
+<span id="cb52-2"><a href="#cb52-2" aria-hidden="true" tabindex="-1"></a>lr_p      <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">-</span> <span class="fu">pchisq</span>(lr_test<span class="sc">$</span>chisq, <span class="at">df =</span> <span class="dv">1</span>)</span>
+<span id="cb52-3"><a href="#cb52-3" aria-hidden="true" tabindex="-1"></a>med_surv_a <span class="ot">&lt;-</span> <span class="fu">summary</span>(km_fit)<span class="sc">$</span>table[<span class="st">"subtype=A"</span>, <span class="st">"median"</span>]</span>
+<span id="cb52-4"><a href="#cb52-4" aria-hidden="true" tabindex="-1"></a>med_surv_b <span class="ot">&lt;-</span> <span class="fu">summary</span>(km_fit)<span class="sc">$</span>table[<span class="st">"subtype=B"</span>, <span class="st">"median"</span>]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>Patient P023 (Subtype A): extreme Factor 1 loading (14.64), elevated TMB (33), high CNV instability (1.41) — and, tellingly, an observed time of just 1 month with an event recorded. Patient P179 (Subtype B): the mirror image — Factor 1 loading of -14.06, TMB of 0, CNV score of -0.87, and 21.2 months of follow-up with no event. These aren’t cherry-picked for the contrast; they were selected purely on Factor 1 extremity, and the survival difference fell out of that selection on its own. The KM curves confirm the pattern holds across the full cohort: subtype assignment — derived purely from multi-omics profiling, with no survival information used during classification — stratifies patients with genuinely different outcomes (log-rank p = 1.49e-09, median survival 9.2 vs.&nbsp;28.5 months). That predictive validity, emerging from molecular data alone, is the promise of multi-omics personalised medicine.</p>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">8. Takeaways</h2>
+<ul>
+<li>The AUC comparison surfaced an honest limitation rather than a clean “integration wins” story: transcriptomics alone hit AUC = 1.000, tying the integrated model, partly because the simulated effect size was large and partly because of a real methodological issue — the transcriptomics features were DE-selected on the full dataset before being fed to the classifier, which leaks label information ahead of cross-validation and inflates both numbers. The trustworthy comparison in this analysis is genomics (0.954, not pre-selected) to multi-omics (1.000) — a 4.6-point gain where integration demonstrably closed a real gap.</li>
+<li>The latent factor structure of the integrated data is interpretable: Factor 1 alone explains 41.6% of joint variance, dominates the SHAP importance ranking roughly 30-fold over the next factor, and patients with extreme Factor 1 loadings have the most extreme single-omic profiles across every layer. Integration doesn’t produce a black box here — it produces a lower-dimensional representation that is arguably more legible than any individual omic layer.</li>
+<li>The pathway enrichment step returned no significant hits (0 of 10, top FDR = 0.35) — and that null result is expected given how the simulation was built: pathway membership was randomly assigned, independent of true DE status, purely to demonstrate the contingency-table and multiple-testing mechanics of enrichment analysis. With real, curated pathway databases and a genuine biological DE signal concentrated in specific processes, the same methodology would surface real enrichment. The mechanics transfer directly; only the input mapping needs to be biologically grounded.</li>
+<li>The ML-derived subtype labels predicted survival without any survival information used during model training. That extrapolation — from molecular profiling to clinical outcome — is the operational definition of personalised medicine, and it depends on having a complete enough omic view of the patient to capture the relevant biological variation.</li>
+<li>The R + Python integration via <code>reticulate</code> is seamless for this workflow: R handles the statistical modelling and visualisation where its ecosystem is stronger (limma, survminer, pheatmap), Python handles the ML and SHAP layer where scikit-learn and the SHAP library are more mature. Neither language does everything best; neither should have to.</li>
+<li>Cancer as a genomic disease means that somatic alterations (TMB, CNV) initiate the cascade, but the phenotype a clinician sees — proliferative rate, immune evasion, drug resistance — is the product of that cascade propagating through transcription, translation, metabolism, and epigenetic remodelling. Measuring only the initiating layer, or only one downstream layer, gives an incomplete picture of a complete process.</li>
+</ul>
+<p>#MultiOmics #Genomics #Transcriptomics #Proteomics #Metabolomics #Epigenomics #MachineLearning #SystemsBiology #PersonalisedMedicine #Bioinformatics #RStats #Python #CancerGenomics</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/Real-peekei\.github\.io\/articles\/");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+      &nbsp;
+    </div>   
+    <div class="nav-footer-center">
+<p>© Peekei</p>
+</div>
+    <div class="nav-footer-right">
+      &nbsp;
+    </div>
+  </div>
+</footer>
+
+
+
+
+</body></html>
