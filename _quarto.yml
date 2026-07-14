@@ -1,0 +1,32 @@
+project:
+  type: website
+  output-dir: docs
+
+website:
+  title: "Peekei | Biostatistics & Bioinformatics"
+  description: "Applied biostatistics, computational biology, and genomics — worked examples, methods notes, and reproducible analyses."
+  navbar:
+    left:
+      - href: index.qmd
+        text: Articles
+      - href: about.qmd
+        text: About
+    right:
+      - icon: github
+        href: https://github.com/
+  page-footer:
+    center: "© Peekei"
+
+format:
+  html:
+    theme: flatly
+    css: styles.css
+    toc: true
+    toc-float: true
+    fig-caption: true
+    code-fold: false
+    grid:
+      body-width: 900px
+
+execute:
+  freeze: auto

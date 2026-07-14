@@ -1,0 +1,14 @@
+---
+title: "Articles"
+listing:
+  contents: articles
+  sort: "date desc"
+  type: default
+  categories: true
+  fields: [date, title, description, categories, reading-time]
+  feed: true
+page-layout: full
+title-block-banner: false
+---
+
+Worked examples in biostatistics, bioinformatics, and computational biology — Cox models, Bayesian hierarchical methods, epidemic modeling, multi-omics integration, and whatever comes next. Each article is a full reproducible analysis: simulated or public data, R code, diagnostics, and an honest read of what the numbers do and don't support.

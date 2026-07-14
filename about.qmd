@@ -1,0 +1,5 @@
+---
+title: "About"
+---
+
+Peekei — high school Computer Studies and Biology teacher with a BSc in Biostatistics, building toward an MSc in Molecular Biology and Bioinformatics. This site collects worked biostatistics and bioinformatics analyses: reproducible R (and occasionally Python) methods pieces written to methods-section rigor rather than tutorial simplicity.
