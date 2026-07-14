@@ -1,0 +1,1095 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss  xmlns:atom="http://www.w3.org/2005/Atom" 
+      xmlns:media="http://search.yahoo.com/mrss/" 
+      xmlns:content="http://purl.org/rss/1.0/modules/content/" 
+      xmlns:dc="http://purl.org/dc/elements/1.1/" 
+      version="2.0">
+<channel>
+<title>Peekei | Biostatistics &amp; Bioinformatics</title>
+<link>https://Real-peekei.github.io/articles/</link>
+<atom:link href="https://Real-peekei.github.io/articles/index.xml" rel="self" type="application/rss+xml"/>
+<description>Applied biostatistics, computational biology, and genomics — worked examples, methods notes, and reproducible analyses.</description>
+<generator>quarto-1.9.38</generator>
+<lastBuildDate>Sun, 12 Jul 2026 21:00:00 GMT</lastBuildDate>
+<item>
+  <title>Cox Proportional Hazards Modeling in a Simulated Oncology Trial</title>
+  <dc:creator>Peekei </dc:creator>
+  <link>https://Real-peekei.github.io/articles/articles/survival-analysis-final.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<section id="motivation" class="level2">
+<h2 class="anchored" data-anchor-id="motivation">1. Motivation</h2>
+<p>Time-to-event outcomes — death, disease progression, relapse — are the primary endpoints in most phase II/III oncology trials. They come with a structural complication ordinary regression can’t handle: censoring. Patients leave a trial alive, get lost to follow-up, or simply haven’t had the event by the data cutoff, and treating those patients as “no event = longest survival,” or dropping them outright, both bias the result. The Cox proportional hazards model gets around this by modeling the <em>hazard</em> — the instantaneous event rate conditional on survival to that point — without committing to a parametric shape for the baseline hazard itself.</p>
+<p>What follows fits and validates a Cox model on a simulated two-arm oncology trial. Treatment assignment is the primary inferential target; age and baseline ECOG performance status come along as adjustment covariates.</p>
+</section>
+<section id="simulated-dataset" class="level2">
+<h2 class="anchored" data-anchor-id="simulated-dataset">2. Simulated Dataset</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">set.seed</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2024</span>)</span>
+<span id="cb1-2"></span>
+<span id="cb1-3">n <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">300</span></span>
+<span id="cb1-4">treatment <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rbinom</span>(n, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.5</span>)</span>
+<span id="cb1-5">age <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rnorm</span>(n, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">mean =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">60</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">sd =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10</span>))</span>
+<span id="cb1-6">age <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pmin</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pmax</span>(age, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">30</span>), <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">85</span>)</span>
+<span id="cb1-7">ecog <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sample</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, n, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">replace =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">prob =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.5</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.35</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.15</span>))</span>
+<span id="cb1-8"></span>
+<span id="cb1-9"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># True hazard ratio for treatment ~0.65 (protective), age and ECOG as nuisance covariates</span></span>
+<span id="cb1-10">linpred <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.02</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> (age <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">60</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.5</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> ecog <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.43</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> treatment</span>
+<span id="cb1-11">baseline_scale <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">8</span>  <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># months, baseline median survival driver</span></span>
+<span id="cb1-12"></span>
+<span id="cb1-13">u <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">runif</span>(n)</span>
+<span id="cb1-14">event_time <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> baseline_scale <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> (<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">log</span>(u) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">exp</span>(linpred))<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">^</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb1-15"></span>
+<span id="cb1-16"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Administrative censoring at 24 months + independent random dropout</span></span>
+<span id="cb1-17">censor_time <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pmin</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">24</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rexp</span>(n, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">rate =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">30</span>))</span>
+<span id="cb1-18">time <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pmin</span>(event_time, censor_time)</span>
+<span id="cb1-19">status <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.integer</span>(event_time <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;=</span> censor_time)</span>
+<span id="cb1-20"></span>
+<span id="cb1-21">trial_data <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tibble</span>(</span>
+<span id="cb1-22">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">id =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:</span>n,</span>
+<span id="cb1-23">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">time =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>(time, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>),</span>
+<span id="cb1-24">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">status =</span> status,</span>
+<span id="cb1-25">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">treatment =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">factor</span>(treatment, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">labels =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Control"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Treatment"</span>)),</span>
+<span id="cb1-26">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">age =</span> age,</span>
+<span id="cb1-27">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ecog =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">factor</span>(ecog, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">labels =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"0"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"2"</span>))</span>
+<span id="cb1-28">)</span>
+<span id="cb1-29"></span>
+<span id="cb1-30">trial_data <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb1-31">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">group_by</span>(treatment) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb1-32">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">summarise</span>(</span>
+<span id="cb1-33">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">n =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">n</span>(),</span>
+<span id="cb1-34">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">events =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sum</span>(status),</span>
+<span id="cb1-35">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">event_rate =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mean</span>(status), <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>),</span>
+<span id="cb1-36">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">median_followup =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">median</span>(time), <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb1-37">  )</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 2 × 5
+  treatment     n events event_rate median_followup
+  &lt;fct&gt;     &lt;int&gt;  &lt;int&gt;      &lt;dbl&gt;           &lt;dbl&gt;
+1 Control     158    131       0.83             3.4
+2 Treatment   142     96       0.68             5.2</code></pre>
+</div>
+</div>
+<p>A cohort of 300 patients, randomized roughly 1:1 to control or treatment, followed for up to 24 months under administrative censoring plus random dropout. Event rates came out high in both arms — 83% in control, 68% in treatment — and median follow-up to event or censoring sits at just 3.4 months for control versus 5.2 for treatment. This is a fast-moving disease in the simulation: most patients who are going to have the event have it within the first several months, which is exactly the setting where a Cox model’s constant-hazard-ratio assumption is most likely to be stressed, and exactly why Section 5 checks it directly rather than taking it on faith.</p>
+</section>
+<section id="kaplan-meier-curves-by-treatment-arm" class="level2">
+<h2 class="anchored" data-anchor-id="kaplan-meier-curves-by-treatment-arm">3. Kaplan-Meier Curves by Treatment Arm</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1">km_fit <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">survfit</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">Surv</span>(time, status) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span> treatment, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> trial_data)</span>
+<span id="cb3-2"></span>
+<span id="cb3-3"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggsurvplot</span>(</span>
+<span id="cb3-4">  km_fit,</span>
+<span id="cb3-5">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> trial_data,</span>
+<span id="cb3-6">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">pval =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>,</span>
+<span id="cb3-7">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">conf.int =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>,</span>
+<span id="cb3-8">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">risk.table =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>,</span>
+<span id="cb3-9">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">legend.title =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Arm"</span>,</span>
+<span id="cb3-10">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">xlab =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Time (months)"</span>,</span>
+<span id="cb3-11">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ylab =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Survival probability"</span>,</span>
+<span id="cb3-12">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">palette =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#4DBBD5"</span>)</span>
+<span id="cb3-13">)</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/survival-analysis-final_files/figure-html/km-fit-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Kaplan-Meier survival curves by treatment arm</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1">logrank <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">survdiff</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">Surv</span>(time, status) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span> treatment, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> trial_data)</span>
+<span id="cb4-2">logrank_p <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pchisq</span>(logrank<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>chisq, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">df =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb4-3">logrank_p</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 0.0002960008</code></pre>
+</div>
+</div>
+<p>The log-rank test returns a chi-square statistic of 13.1 on 1 degree of freedom (p = 0.0003) — a separation strong enough that it would survive almost any reasonable correction for multiple comparisons. The curves split apart early, within the first couple of months, and the gap holds through the rest of follow-up rather than closing back up. That shape matters: a treatment effect that’s only visible in long-term survivors looks different on a KM plot than one that’s there from day one, and this is the latter.</p>
+</section>
+<section id="cox-proportional-hazards-model" class="level2">
+<h2 class="anchored" data-anchor-id="cox-proportional-hazards-model">4. Cox Proportional Hazards Model</h2>
+<p>We fit the treatment-only (unadjusted) model first, then the adjusted model, so the effect of covariate adjustment on the treatment estimate is visible rather than asserted.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1">cox_unadjusted <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">coxph</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">Surv</span>(time, status) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span> treatment, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> trial_data)</span>
+<span id="cb6-2">unadj_summary <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tidy</span>(cox_unadjusted, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">exponentiate =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">conf.int =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>)</span>
+<span id="cb6-3">unadj_summary</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 1 × 7
+  term               estimate std.error statistic  p.value conf.low conf.high
+  &lt;chr&gt;                 &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;
+1 treatmentTreatment    0.615     0.136     -3.58 0.000339    0.471     0.802</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1">cox_model <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">coxph</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">Surv</span>(time, status) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span> treatment <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> age <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> ecog, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> trial_data)</span>
+<span id="cb8-2">cox_summary <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tidy</span>(cox_model, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">exponentiate =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">conf.int =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>)</span>
+<span id="cb8-3">cox_summary</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code># A tibble: 4 × 7
+  term               estimate std.error statistic     p.value conf.low conf.high
+  &lt;chr&gt;                 &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;       &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;
+1 treatmentTreatment    0.636   0.137       -3.30 0.000965       0.486     0.832
+2 age                   1.04    0.00778      5.07 0.000000399    1.02      1.06 
+3 ecog1                 1.92    0.149        4.35 0.0000134      1.43      2.57 
+4 ecog2                 2.66    0.200        4.91 0.000000927    1.80      3.94 </code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1">hr_unadj <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> unadj_summary <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(term <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"treatmentTreatment"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(estimate)</span>
+<span id="cb10-2">hr_treatment <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> cox_summary <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(term <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"treatmentTreatment"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(estimate)</span>
+<span id="cb10-3">hr_lower <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> cox_summary <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(term <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"treatmentTreatment"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(conf.low)</span>
+<span id="cb10-4">hr_upper <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> cox_summary <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(term <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"treatmentTreatment"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(conf.high)</span>
+<span id="cb10-5">hr_age <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> cox_summary <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(term <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"age"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(estimate)</span>
+<span id="cb10-6">hr_ecog1 <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> cox_summary <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(term <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ecog1"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(estimate)</span>
+<span id="cb10-7">hr_ecog2 <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> cox_summary <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">filter</span>(term <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ecog2"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pull</span>(estimate)</span>
+<span id="cb10-8">hr_shift_pct <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abs</span>(hr_treatment <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> hr_unadj) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> hr_unadj <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span></span></code></pre></div></div>
+</div>
+<p>The unadjusted hazard ratio for treatment is 0.61. Adjusting for age and ECOG moves it to 0.64 (95% CI: 0.49–0.83) — a shift of about 3.4%, small enough to read as the kind of noise you’d expect from chance covariate imbalance under randomization rather than evidence that age or ECOG were masking the treatment effect beforehand. Treatment is the primary inferential target in this analysis: conditional on age and ECOG, treated patients are dying or progressing at 64% the rate of control patients at any given moment, which is the same thing as saying the event rate drops by 36%.</p>
+<p>Age and ECOG are in the model to adjust for baseline prognostic imbalance, not because they’re the question being asked — but it’s worth saying plainly that they came out as far from nuisance covariates in this fit. Each additional year of age carries a hazard ratio of 1.04, and ECOG climbs steeply: 1.92 for ECOG 1 versus ECOG 0, 2.66 for ECOG 2 versus ECOG 0, both comfortably below p = 0.0001. None of that changes how the analysis should be read — treatment is still the target, age and ECOG are still adjustment — but a model where the adjustment covariates are this strongly prognostic is also a model where skipping the adjustment would have been a real mistake, not just a formality.</p>
+</section>
+<section id="proportional-hazards-assumption" class="level2">
+<h2 class="anchored" data-anchor-id="proportional-hazards-assumption">5. Proportional Hazards Assumption</h2>
+<p>The entire model rests on the assumption that the hazard ratio for each covariate is constant over time. This needs to be checked, not assumed.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1">ph_test <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cox.zph</span>(cox_model)</span>
+<span id="cb11-2">ph_test</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>           chisq df    p
+treatment 0.3533  1 0.55
+age       0.0213  1 0.88
+ecog      2.8205  2 0.24
+GLOBAL    3.0654  4 0.55</code></pre>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggcoxzph</span>(ph_test)</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/survival-analysis-final_files/figure-html/ph-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Schoenfeld residuals for proportional hazards diagnostic</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1">ph_global_p <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> ph_test<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>table[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"GLOBAL"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p"</span>]</span>
+<span id="cb14-2">ph_treatment_p <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> ph_test<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>table[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"treatment"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p"</span>]</span>
+<span id="cb14-3">ph_global_p</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 0.5469464</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1">ph_treatment_p</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 0.5522347</code></pre>
+</div>
+</div>
+<p>The global test for proportional hazards comes back at p = 0.55, and the treatment-specific test individually at p = 0.55 as well — neither close to flagging a violation. That’s worth noting given the fast event accumulation described above: a disease this aggressive, with most events happening in the first few months, is exactly the kind of setting where a treatment effect sometimes front-loads (strong early, fading later) and trips the PH assumption. It doesn’t happen here. The Schoenfeld residual plot for treatment sits flat across follow-up time with no visible drift, which means the hazard ratio estimated above is a reasonable single number for the whole follow-up window, not an average masking a changing effect.</p>
+</section>
+<section id="functional-form-check-martingale-residuals-for-age" class="level2">
+<h2 class="anchored" data-anchor-id="functional-form-check-martingale-residuals-for-age">6. Functional Form Check: Martingale Residuals for Age</h2>
+<p>Age enters the Cox model above as a linear term — convenient, but an assumption that needs checking rather than defaulting to. Martingale residuals from a model that excludes age, plotted against age itself with a smoothed trend line, are the standard way to see whether that linearity holds or whether the true relationship calls for a quadratic term, a spline, or categorization instead.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1">cox_no_age <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">coxph</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">Surv</span>(time, status) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span> treatment <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> ecog, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> trial_data)</span>
+<span id="cb18-2">trial_data<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>martingale_resid <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">residuals</span>(cox_no_age, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">type =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"martingale"</span>)</span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(trial_data, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> age, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> martingale_resid)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb19-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_point</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">alpha =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.4</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#4DBBD5"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb19-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_smooth</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">method =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"loess"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">se =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb19-4">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_hline</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">yintercept =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linetype =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"dashed"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"grey40"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb19-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Age"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Martingale residual"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb19-6">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/survival-analysis-final_files/figure-html/martingale-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Martingale residuals vs.&nbsp;age, with LOESS smooth, to assess linearity</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1">cox_age_quad <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">coxph</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">Surv</span>(time, status) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span> treatment <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> ecog <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> age <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">I</span>(age<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">^</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> trial_data)</span>
+<span id="cb20-2">age_quad_test <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">anova</span>(cox_model, cox_age_quad)</span>
+<span id="cb20-3">age_quad_p <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> age_quad_test<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">`</span><span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">Pr(&gt;|Chi|)</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">`</span>[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>]</span>
+<span id="cb20-4">age_quad_p</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] 0.1797219</code></pre>
+</div>
+</div>
+<p>A likelihood ratio test comparing the linear-age model against one with an added quadratic age term gives p = 0.18 — not a small number, but well clear of anything that would suggest the linear specification is missing real curvature. The LOESS smooth in the martingale residual plot backs that up, tracking close to zero across the observed age range without a pronounced bend. Both pieces of evidence point the same way: the linear term for age in the main model is doing its job, and there’s no case here for replacing it with a spline or a quadratic.</p>
+</section>
+<section id="model-discrimination" class="level2">
+<h2 class="anchored" data-anchor-id="model-discrimination">7. Model Discrimination</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1">conc <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">summary</span>(cox_model)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>concordance</span>
+<span id="cb22-2">conc</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>        C     se(C) 
+0.6555498 0.0196938 </code></pre>
+</div>
+</div>
+<p>The model’s concordance index comes out at 0.656. That’s the range you’d expect from a Cox model built around one strong binary covariate plus two moderately prognostic ones (age, ECOG) — clearly above the 0.5 floor of random ranking, but nowhere near a model that reliably orders individual patients’ survival times. The gap is structural, not a flaw to apologize for: concordance scores every pair of patients in the dataset, including pairs where both are control or both are treatment and age/ECOG are the only thing separating them, and those two variables only carry so much individual-level discriminative power on their own. A binary treatment indicator with a hazard ratio around 0.6 simply can’t push concordance much past the mid-0.6s, no matter how cleanly the model is specified.</p>
+</section>
+<section id="patient-level-illustration" class="level2">
+<h2 class="anchored" data-anchor-id="patient-level-illustration">8. Patient-Level Illustration</h2>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1">new_patients <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tibble</span>(</span>
+<span id="cb24-2">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">treatment =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">factor</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Control"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Treatment"</span>), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">levels =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Control"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Treatment"</span>)),</span>
+<span id="cb24-3">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">age =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">62</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">62</span>),</span>
+<span id="cb24-4">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ecog =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">factor</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"1"</span>), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">levels =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"0"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"2"</span>))</span>
+<span id="cb24-5">)</span>
+<span id="cb24-6"></span>
+<span id="cb24-7">surv_fit_patients <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">survfit</span>(cox_model, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">newdata =</span> new_patients)</span></code></pre></div></div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1">plot_data <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tibble</span>(</span>
+<span id="cb25-2">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">time =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rep</span>(surv_fit_patients<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>time, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>),</span>
+<span id="cb25-3">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">surv =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(surv_fit_patients<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>surv[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>], surv_fit_patients<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>surv[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>]),</span>
+<span id="cb25-4">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">arm =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rep</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Control"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Treatment"</span>), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">each =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(surv_fit_patients<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>time))</span>
+<span id="cb25-5">)</span>
+<span id="cb25-6"></span>
+<span id="cb25-7"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(plot_data, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> time, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> surv, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> arm)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb25-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_step</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">linewidth =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb25-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">scale_color_manual</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">values =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#4DBBD5"</span>)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb25-10">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Time (months)"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Predicted survival probability"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Arm"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb25-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/survival-analysis-final_files/figure-html/patient-plot-1.png" class="img-fluid figure-img" width="672"></p>
+<figcaption>Predicted survival curves for a 62-year-old, ECOG 1 patient under each treatment arm</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1">surv_12mo_control <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> surv_fit_patients<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>surv[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">which.min</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abs</span>(surv_fit_patients<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>time <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">12</span>)), <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]</span>
+<span id="cb26-2">surv_12mo_treatment <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> surv_fit_patients<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>surv[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">which.min</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abs</span>(surv_fit_patients<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>time <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">12</span>)), <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>]</span>
+<span id="cb26-3">surv_12mo_control</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>         1 
+0.04847591 </code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1">surv_12mo_treatment</span></code></pre></div></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>        2 
+0.1460643 </code></pre>
+</div>
+</div>
+<p>For a 62-year-old patient with ECOG 1 — a fairly typical profile in this cohort — the model puts 12-month survival at 5% under control and 15% under treatment. Both numbers are low, which tracks with the median follow-up times from Section 2: most events in this simulated population happen well before the one-year mark, so 12 months is already deep into the tail of the survival curve for either arm. The 10-percentage-point gap is the clinically interpretable counterpart to the hazard ratio above — the HR describes a constant rate ratio, this describes what that rate ratio actually buys a specific patient by a specific point in time, and in a disease this aggressive, tripling the absolute survival probability at 12 months (even from a low base) is the kind of number a clinician would actually act on.</p>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<ul>
+<li>Adjusted treatment HR lands at 0.64 (95% CI 0.49–0.83) — a 36% reduction in event rate, and the headline result of this analysis. Age and ECOG sit alongside it as adjustment covariates, not co-equal findings, even though both turned out to be strongly prognostic in their own right.</li>
+<li>Moving from unadjusted (0.61) to adjusted (0.64) HR shifted the treatment estimate by only 3.4%, which is what you’d expect from randomization noise rather than meaningful confounding. Showing both numbers, instead of just the final one, is what makes that distinction visible rather than asserted.</li>
+<li>The PH assumption held cleanly (GLOBAL p = 0.55), notably so given this was a fast-progressing simulated disease — exactly the kind of setting where front-loaded treatment effects sometimes violate proportionality, and didn’t here.</li>
+<li>Concordance came in at 0.656, the expected ceiling for a model carrying one strong binary covariate and two moderately prognostic continuous/ordinal ones — not a fit problem, just what concordance does with this covariate structure.</li>
+<li>A 10-percentage-point absolute survival gap at 12 months (5% vs.&nbsp;15%) is the patient-facing translation of the hazard ratio above; in an aggressive disease course like this one, that gap represents tripling an already-low survival probability, which is a number worth stating plainly rather than softening.</li>
+<li>Age’s linear specification checked out: a quadratic term added nothing (LRT p = 0.18), and the martingale residual smooth stayed flat across the age range. Worth confirming rather than assuming, even though it ended up changing nothing about the final model.</li>
+<li>Age and ECOG weren’t passive adjustment terms here — both came out significant at p &lt; 0.0001 with real magnitude (ECOG 2 vs.&nbsp;0 carrying close to triple the hazard of ECOG 0). They still aren’t the question being asked, but skipping their inclusion would have been a real omission, not a stylistic choice.</li>
+</ul>
+<p>What makes Cox regression durable as a method is that it separates “does the covariate matter” from “what shape does the baseline hazard take.” That separation only holds, though, if proportionality actually gets checked against the data in front of you — this one passed, but plenty don’t, and you wouldn’t know either way without looking.</p>
+<p>#Biostatistics #SurvivalAnalysis #CoxRegression #ClinicalTrials #Bioinformatics #RStats</p>
+
+
+</section>
+
+ ]]></description>
+  <category>Biostatistics</category>
+  <category>Survival Analysis</category>
+  <category>RStats</category>
+  <category>Clinical Trials</category>
+  <guid>https://Real-peekei.github.io/articles/articles/survival-analysis-final.html</guid>
+  <pubDate>Sun, 12 Jul 2026 21:00:00 GMT</pubDate>
+</item>
+</channel>
+</rss>
