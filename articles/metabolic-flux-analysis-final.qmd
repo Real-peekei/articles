@@ -1,0 +1,452 @@
+---
+title: "Flux Balance Analysis of *E. coli* Central Metabolism: Growth, Knockouts, and Nutrient Shifts"
+author: "Peekei"
+date: "2026-07-15"
+description: "A Python + COBRApy systems biology deep dive: baseline FBA vs. parsimonious FBA on E. coli's core metabolic model, flux variability analysis, growth response across carbon sources, phenotype phase planes, and single/double gene knockout screening for synthetic lethality."
+categories: [Systems Biology, Flux Balance Analysis, Metabolic Modeling, Python, Bioinformatics, Synthetic Biology]
+format:
+  html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
+    code-summary: "Show code"
+    fig-width: 8
+    fig-height: 5
+    fig-cap-location: bottom
+jupyter: cobra-fba
+---
+
+<!--
+SETUP — run this once in a terminal before rendering:
+
+  conda create -n cobra-fba python=3.10 -y
+  conda activate cobra-fba
+  pip install cobra pandas numpy matplotlib seaborn jupyter ipykernel
+  python -m ipykernel install --user --name cobra-fba --display-name "Python (cobra-fba)"
+
+The `jupyter: cobra-fba` field in the YAML header above tells Quarto which
+kernel to render with. If you named your environment something other than
+`cobra-fba`, either rename it to match or update that field.
+
+Render with:  quarto render metabolic-flux-analysis-v1.qmd
+(or click Render in RStudio — it calls Quarto the same way)
+-->
+
+## 1. Motivation
+
+A genome-scale metabolic model (GEM) is a stoichiometric reconstruction of every known biochemical reaction an organism's genome can catalyse — thousands of reactions connected through shared metabolites, each reaction tied back to the gene or genes that encode its enzyme. That structure alone doesn't predict behaviour. Flux Balance Analysis (FBA) turns the structure into a prediction by assuming the cell is at metabolic steady state and solving a linear program: find the distribution of reaction fluxes that maximises a chosen objective (almost always growth, represented as flux through a biomass reaction) subject to the stoichiometric constraints and the uptake bounds available in the environment.
+
+What makes this genuinely useful rather than a curve-fitting exercise is that the model is mechanistic — asking "what happens if gene X is knocked out" is answered by removing every reaction that gene uniquely catalyses and re-solving the same optimisation, not by fitting a new statistical relationship. This piece works through baseline FBA on *E. coli*'s core metabolic model, the degeneracy problem that plain FBA has and how parsimonious FBA (pFBA) resolves it, flux variability analysis, growth response to different carbon sources and oxygen availability, and systematic single- and double-gene knockout screening.
+
+## 2. Model Acquisition
+
+```{bash}
+#| eval: false
+# Reference only — the Python chunk below performs the actual download
+# with caching, so this does not need to be run manually. Shown here
+# for reproducibility: this is the exact source the model comes from.
+
+curl -O http://bigg.ucsd.edu/static/models/e_coli_core.xml
+```
+
+```{python}
+#| label: load-model
+import os
+import gzip
+import shutil
+import time
+import urllib.request
+
+import cobra
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+sns.set_style("whitegrid")
+
+MODEL_PATH   = "e_coli_core.xml"
+BIGG_URL_XML = "http://bigg.ucsd.edu/static/models/e_coli_core.xml"
+BIGG_URL_GZ  = "http://bigg.ucsd.edu/static/models/e_coli_core.xml.gz"
+MIN_VALID_SIZE = 400_000   # real file is ~700KB; anything much smaller is a truncated download
+
+def is_valid_model_file(path):
+    """A partial/corrupt download can pass os.path.exists() — check size
+    and that it actually parses as XML before trusting it."""
+    if not os.path.exists(path):
+        return False
+    if os.path.getsize(path) < MIN_VALID_SIZE:
+        return False
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            head = f.read(200)
+        return "<sbml" in head.lower() or "<?xml" in head.lower()
+    except Exception:
+        return False
+
+def try_download(url, dest, attempts=3, timeout=30):
+    for attempt in range(1, attempts + 1):
+        try:
+            urllib.request.urlretrieve(url, dest)
+            return True
+        except Exception as e:
+            print(f"  Attempt {attempt}/{attempts} failed: {e}")
+            if os.path.exists(dest):
+                os.remove(dest)   # never leave a partial file behind
+            if attempt < attempts:
+                time.sleep(3)
+    return False
+
+# If a stale/partial file exists from an earlier interrupted run, discard it
+if os.path.exists(MODEL_PATH) and not is_valid_model_file(MODEL_PATH):
+    print("Found an incomplete or corrupt model file from a previous run — removing it.")
+    os.remove(MODEL_PATH)
+
+if not is_valid_model_file(MODEL_PATH):
+    print("Downloading e_coli_core model from BiGG (uncompressed XML)...")
+    success = try_download(BIGG_URL_XML, MODEL_PATH)
+
+    if not success or not is_valid_model_file(MODEL_PATH):
+        print("Uncompressed download failed — trying gzipped version...")
+        gz_path = MODEL_PATH + ".gz"
+        success = try_download(BIGG_URL_GZ, gz_path)
+        if success:
+            with gzip.open(gz_path, "rb") as f_in, open(MODEL_PATH, "wb") as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            os.remove(gz_path)
+
+    if not is_valid_model_file(MODEL_PATH):
+        raise RuntimeError(
+            "\n\nCould not download the model automatically after multiple attempts — "
+            "this usually means a network or DNS issue on this machine rather than a "
+            "problem with the code. To work around it:\n\n"
+            "  1. Open this URL in your browser:\n"
+            "     http://bigg.ucsd.edu/static/models/e_coli_core.xml\n"
+            "  2. Save the file as 'e_coli_core.xml'\n"
+            f"  3. Place it in the same folder as this .qmd file:\n"
+            f"     {os.path.abspath('.')}\n"
+            "  4. Re-render — the code will detect the file and skip downloading.\n"
+        )
+    else:
+        print("Download succeeded.")
+else:
+    print("Using existing local model file (already downloaded).")
+
+model = cobra.io.read_sbml_model(MODEL_PATH)
+
+print(f"Reactions:  {len(model.reactions)}")
+print(f"Metabolites:{len(model.metabolites)}")
+print(f"Genes:      {len(model.genes)}")
+print(f"Objective:  {model.objective.expression}")
+```
+
+The *E. coli* core model is deliberately small — it captures glycolysis, the TCA cycle, the pentose phosphate pathway, oxidative phosphorylation, and central carbon exchange reactions, without the full genome-scale reconstruction's thousands of peripheral reactions. That size is an advantage here: every result below can be inspected pathway-by-pathway rather than disappearing into a reaction list too large to reason about directly.
+
+## 3. Baseline FBA and the Degeneracy Problem
+
+```{python}
+#| label: baseline-fba
+solution_fba = model.optimize()
+
+print(f"Growth rate (FBA):  {solution_fba.objective_value:.4f} 1/h")
+print(f"Status: {solution_fba.status}")
+print(f"Sum of absolute fluxes (FBA solution): {solution_fba.fluxes.abs().sum():.2f}")
+```
+
+Plain FBA found a growth rate, but that number can correspond to more than one flux distribution. Whenever a metabolic network has redundant or parallel routes between the same start and end points — which real metabolism almost always does — many different flux vectors can achieve the identical optimal growth rate. Reporting "the" flux distribution from plain FBA without acknowledging this is misleading: the solver returned *a* solution, not necessarily a biologically representative one.
+
+Parsimonious FBA (pFBA) resolves this by adding a second objective: among all flux distributions that achieve the optimal growth rate, find the one with the minimum total flux. This is motivated by the assumption that cells don't run unnecessary enzymatic reactions when a leaner route achieves the same growth — an assumption with real biological support, not an arbitrary tie-breaker.
+
+```{python}
+#| label: pfba
+solution_pfba = cobra.flux_analysis.pfba(model)
+
+# IMPORTANT: pfba() internally swaps the model's objective to "minimize
+# total flux" before re-solving, so solution_pfba.objective_value reflects
+# THAT objective (the total flux sum) — not the growth rate. The growth
+# rate has to be read back out as the flux through the biomass reaction
+# specifically. Biomass reactions are identified by convention (their id
+# contains "biomass") rather than assumed to have one fixed name, since
+# that varies slightly across BiGG models.
+biomass_reaction = next(r for r in model.reactions if "biomass" in r.id.lower())
+pfba_growth_rate = solution_pfba.fluxes[biomass_reaction.id]
+
+print(f"Biomass reaction: {biomass_reaction.id}")
+print(f"Growth rate (pFBA): {pfba_growth_rate:.4f} 1/h")
+print(f"Sum of absolute fluxes (pFBA solution): {solution_pfba.fluxes.abs().sum():.2f}")
+```
+
+::: {.callout-warning title="Implementation gotcha"}
+`pfba()` re-solves the model against a *different* objective internally — total flux minimisation, subject to growth being fixed at its optimum — so the `Solution.objective_value` it returns reflects that internal flux-minimisation objective, not the growth rate. Reading `.objective_value` directly off a pFBA solution and assuming it's the growth rate silently produces a nonsensical number (it would come out numerically identical to the total flux sum). The growth rate itself has to be read back out as the flux through the biomass reaction specifically, which is what the code above does.
+:::
+
+```{python}
+#| label: fba-vs-pfba-plot
+#| fig-cap: "Flux magnitude comparison, FBA vs. pFBA, for the 15 highest-flux reactions in the pFBA solution"
+top_reactions = solution_pfba.fluxes.abs().sort_values(ascending=False).head(15).index
+
+compare_df = pd.DataFrame({
+    "FBA":  solution_fba.fluxes[top_reactions].abs(),
+    "pFBA": solution_pfba.fluxes[top_reactions].abs()
+})
+
+compare_df.plot(kind="barh", figsize=(8, 6))
+plt.xlabel("Absolute flux (mmol/gDCW/h)")
+plt.ylabel("Reaction")
+plt.tight_layout()
+plt.show()
+```
+
+Both solutions achieve the same growth rate by construction, but the total flux carried differs — the gap between the two "sum of absolute fluxes" numbers above is the degeneracy plain FBA leaves unresolved. Every subsequent analysis in this piece uses the pFBA solution as the reference flux distribution for exactly this reason.
+
+## 4. Flux Variability Analysis
+
+FVA asks a different question than pFBA: rather than picking one flux distribution, what is the *range* each reaction's flux can take while the network still achieves at least some specified fraction of the optimal growth rate? Reactions with a wide FVA range have genuine flexibility — the cell could reroute flux through them without cost. Reactions with a narrow or zero-width range are load-bearing: any deviation compromises growth.
+
+```{python}
+#| label: fva
+fva_result = cobra.flux_analysis.flux_variability_analysis(
+    model, loopless="fastSNP", fraction_of_optimum=0.9
+)
+fva_result["range"] = fva_result["maximum"] - fva_result["minimum"]
+fva_result_sorted = fva_result.sort_values("range", ascending=False)
+
+fva_result_sorted.head(10)
+```
+
+```{python}
+#| label: fva-plot
+#| fig-cap: "Flux variability ranges (90% of optimal growth) for the 20 reactions with the widest range"
+top_var = fva_result_sorted.head(20)
+
+fig, ax = plt.subplots(figsize=(8, 7))
+ax.barh(top_var.index, top_var["maximum"] - top_var["minimum"],
+        left=top_var["minimum"], color="#4DBBD5", alpha=0.85)
+ax.axvline(0, color="grey", linestyle="--", linewidth=0.8)
+ax.set_xlabel("Flux range (mmol/gDCW/h)")
+ax.set_ylabel("Reaction")
+plt.tight_layout()
+plt.show()
+```
+
+::: {.callout-note title="Why these FVA settings"}
+`loopless="fastSNP"` matters here — without loop removal, FVA can report artificially wide ranges driven by thermodynamically infeasible internal loops (flux cycling through a set of reactions with no net effect, which is mathematically valid in a pure stoichiometric model but physically impossible). Restricting to loopless solutions keeps the ranges biologically interpretable. The `fraction_of_optimum=0.9` setting also matters: at strict optimality (fraction = 1.0), most reactions in a network with a single optimal growth rate collapse to a zero-width range, because any deviation would reduce that one exact optimum — relaxing to 90% of optimal growth reveals which reactions have real flexibility within a biologically reasonable neighbourhood of the optimum, rather than reporting that almost nothing varies simply because the constraint was too strict to allow it.
+:::
+
+The widest-range reactions in this model aren't arbitrary — they're recognisable pairs of alternate routes for the same job. Formate transport (FORt/FORt2) shows the largest range because formate excretion is a fermentation by-product with no fixed stoichiometric requirement at 90% of optimal growth. NADTRHD and THD2 are the two transhydrogenase reactions that interconvert the NADH and NADPH pools — one proton-translocating, one not — and their near-identical wide ranges reflect a textbook case of genuine metabolic redundancy: the cell can lean on either route without cost. The same pattern shows up in PGI and G6PDH2r, the entry points to glycolysis and the pentose phosphate pathway respectively — both draw from the same glucose-6-phosphate pool, so flux can shift between the two pathways without changing the growth rate, which is exactly the kind of flexibility a single FBA solution would hide and FVA makes visible.
+
+## 5. Growth Response to Nutrient Environment
+
+The model's default medium is aerobic glucose minimal media. Swapping the carbon source — while leaving the biomass objective and all other constraints untouched — tests how much of *E. coli*'s core network is carbon-source-agnostic versus specialised for glucose.
+
+```{python}
+#| label: carbon-source-sweep
+# Candidate carbon sources to test. Not every exchange reaction below is
+# guaranteed to exist in every model variant, so each one is checked
+# against the model before use rather than assumed — a missing ID is
+# reported and skipped instead of halting the whole analysis.
+carbon_source_candidates = {
+    "Glucose":   "EX_glc__D_e",
+    "Acetate":   "EX_ac_e",
+    "Fructose":  "EX_fru_e",
+    "Succinate": "EX_succ_e",
+}
+
+existing_reaction_ids = {r.id for r in model.reactions}
+carbon_sources = {}
+for name, rxn_id in carbon_source_candidates.items():
+    if rxn_id in existing_reaction_ids:
+        carbon_sources[name] = rxn_id
+    else:
+        print(f"Skipping {name} ({rxn_id}) — not present in this model.")
+
+growth_by_source = {}
+
+with model:
+    # close the default glucose exchange first
+    model.reactions.EX_glc__D_e.lower_bound = 0
+    for name, rxn_id in carbon_sources.items():
+        with model:
+            model.reactions.get_by_id(rxn_id).lower_bound = -10
+            sol = model.optimize()
+            growth_by_source[name] = sol.objective_value if sol.status == "optimal" else 0.0
+
+growth_df = pd.DataFrame.from_dict(growth_by_source, orient="index", columns=["growth_rate"])
+growth_df
+```
+
+```{python}
+#| label: carbon-source-plot
+#| fig-cap: "Predicted growth rate across the carbon sources present in this model, 10 mmol/gDCW/h uptake each"
+growth_df.sort_values("growth_rate", ascending=True).plot(
+    kind="barh", legend=False, color="#3C5488", figsize=(7, 4)
+)
+plt.xlabel("Growth rate (1/h)")
+plt.ylabel("")
+plt.tight_layout()
+plt.show()
+```
+
+The differences across carbon sources reflect real metabolic cost, and the numbers land exactly where the underlying biochemistry predicts. Glucose and fructose both give 0.874 1/h — identical to four decimal places — because fructose enters glycolysis at essentially the same point as glucose (as fructose-6-phosphate), so the model correctly treats them as metabolically equivalent entry points despite being different molecules. Succinate, which enters directly into the TCA cycle and bypasses glycolysis's substrate-level ATP and NADH production entirely, supports growth at 0.398 1/h — less than half the glucose rate. Acetate, entering even further downstream via acetyl-CoA, is the slowest at 0.173 1/h. The ranking (glucose ≈ fructose > succinate > acetate) tracks distance from the top of central metabolism exactly as expected, which is a useful sanity check that the model's stoichiometry is behaving the way real *E. coli* physiology does.
+
+## 6. Phenotype Phase Plane: Glucose vs. Oxygen
+
+Rather than varying one substrate at a time, the phenotype phase plane method (Edwards & Palsson, 2001) grids two exchange fluxes simultaneously — here, glucose and oxygen uptake — and computes the optimal growth rate at every combination. This exposes the boundary between respiratory and fermentative metabolism directly, rather than describing it qualitatively.
+
+```{python}
+#| label: phenotype-phase-plane
+glucose_range = np.linspace(0, 20, 25)
+oxygen_range  = np.linspace(0, 25, 25)
+
+pp_grid = np.zeros((len(oxygen_range), len(glucose_range)))
+
+with model:
+    for i, o2 in enumerate(oxygen_range):
+        for j, glc in enumerate(glucose_range):
+            with model:
+                model.reactions.EX_glc__D_e.lower_bound = -glc
+                model.reactions.EX_o2_e.lower_bound = -o2
+                sol = model.slim_optimize()
+                pp_grid[i, j] = sol if sol is not None and not np.isnan(sol) else 0.0
+```
+
+```{python}
+#| label: phase-plane-plot
+#| fig-cap: "Phenotype phase plane: growth rate as a function of glucose and oxygen uptake rate"
+fig, ax = plt.subplots(figsize=(8, 6))
+im = ax.imshow(pp_grid, origin="lower", aspect="auto", cmap="viridis",
+               extent=[glucose_range.min(), glucose_range.max(),
+                       oxygen_range.min(), oxygen_range.max()])
+ax.set_xlabel("Glucose uptake rate (mmol/gDCW/h)")
+ax.set_ylabel("Oxygen uptake rate (mmol/gDCW/h)")
+fig.colorbar(im, ax=ax, label="Growth rate (1/h)")
+plt.tight_layout()
+plt.show()
+```
+
+The transition zone visible in this grid — where growth rate stops increasing linearly with glucose for a fixed oxygen supply — is the line of optimal respiratory efficiency; beyond it, the cell is oxygen-limited and any additional glucose can only be used fermentatively, which yields less biomass per unit carbon. Where exactly that line sits, and how sharp the transition is, is a direct, falsifiable model prediction rather than an assumption.
+
+## 7. Single Gene Knockout Screening
+
+Every reaction in the model is linked to the gene(s) that encode its catalysing enzyme through gene-protein-reaction (GPR) rules. Knocking out a gene removes every reaction whose GPR rule can no longer be satisfied, then re-solves FBA. Genes whose removal drops growth to (near) zero are essential under this medium; genes whose removal leaves growth largely unchanged have redundant or dispensable function under these conditions specifically — essentiality in FBA is always conditional on the modelled environment.
+
+```{python}
+#| label: single-ko
+ko_results = cobra.flux_analysis.single_gene_deletion(model)
+ko_results["gene_id"] = ko_results["ids"].apply(lambda s: next(iter(s)))
+ko_results["gene_name"] = ko_results["gene_id"].apply(
+    lambda gid: model.genes.get_by_id(gid).name
+)
+
+wt_growth = pfba_growth_rate
+ko_results["relative_growth"] = ko_results["growth"] / wt_growth
+ko_results["essential"] = ko_results["relative_growth"] < 0.01
+
+essential_genes = ko_results[ko_results["essential"]].sort_values("relative_growth")
+n_essential = essential_genes.shape[0]
+n_total_genes = ko_results.shape[0]
+
+essential_genes[["gene_id", "gene_name", "relative_growth"]]
+```
+
+```{python}
+#| label: ko-distribution-plot
+#| fig-cap: "Distribution of relative growth rate across all single-gene knockouts"
+fig, ax = plt.subplots(figsize=(8, 4.5))
+ax.hist(ko_results["relative_growth"], bins=40, color="#4DBBD5", edgecolor="white")
+ax.axvline(0.01, color="#E64B35", linestyle="--", label="Essentiality threshold (1%)")
+ax.set_xlabel("Relative growth rate (knockout / wild-type)")
+ax.set_ylabel("Number of genes")
+ax.legend()
+plt.tight_layout()
+plt.show()
+```
+
+```{python}
+#| label: ko-summary
+print(f"Total genes screened: {n_total_genes}")
+print(f"Essential genes (relative growth < 1%): {n_essential}")
+print(f"Essential fraction: {n_essential / n_total_genes:.1%}")
+```
+
+137 genes screened, 5 classified essential (3.6%): gltA, gapA, eno, pgk, and icd. This list is worth checking against known biology rather than taking on faith, and it holds up: gapA, eno, and pgk are three sequential, non-branching steps in lower glycolysis (glyceraldehyde-3-phosphate dehydrogenase, enolase, phosphoglycerate kinase) — each has no isozyme and no alternate route around it in this model, so removing any one of them severs the only path from glucose to pyruvate. gltA (citrate synthase) and icd (isocitrate dehydrogenase) are the entry and a downstream committed step of the TCA cycle; without them the cycle can't turn, which cascades into failed NADH/FADH2 production for oxidative phosphorylation. A 3.6% essentiality rate is on the low side compared to typical genome-scale essentiality estimates (often cited in the 7-10% range for full *E. coli* reconstructions), which makes sense given the model's small size: with only 137 genes covering the most central, well-characterised pathways, the reactions that remain non-essential in this reduced set are precisely the ones with a genuine backup route already included in the model.
+
+## 8. Double Gene Knockout: Synthetic Lethality
+
+A gene can be individually dispensable while still being part of a pair that is jointly essential — this happens when two genes provide redundant routes to the same essential function, so losing either alone is survivable but losing both simultaneously is not. Screening every pair among all genes is computationally expensive on a genome-scale model; on this core model it's tractable to restrict to genes annotated with more than one associated reaction, on the reasoning that single-reaction genes are the least likely to participate in this kind of redundancy.
+
+```{python}
+#| label: candidate-genes
+# Restrict the pairwise screen to genes that are (a) associated with more
+# than one reaction, and (b) at least one of those reactions carries
+# non-negligible flux in the baseline pFBA solution. This ties the
+# candidate set to genes actively used under the modelled condition,
+# rather than screening pairs drawn from reactions that are already
+# silent at baseline — and it keeps the pairwise search space tractable,
+# since double knockout screening scales quadratically with candidate count.
+
+active_reactions = set(solution_pfba.fluxes[solution_pfba.fluxes.abs() > 1e-6].index)
+
+candidate_genes = [
+    g.id for g in model.genes
+    if len(g.reactions) > 1
+    and any(r.id in active_reactions for r in g.reactions)
+]
+print(f"Candidate genes for pairwise screening: {len(candidate_genes)}")
+print(f"Pairs to be tested: {len(candidate_genes) * (len(candidate_genes) - 1) // 2}")
+```
+
+In this model the criterion above narrows the search to 11 candidate genes and 55 pairs — small enough to run in well under a minute, since each pair only requires one linear program solve.
+
+```{python}
+#| label: double-ko
+double_ko_results = cobra.flux_analysis.double_gene_deletion(
+    model, gene_list1=candidate_genes
+)
+
+double_ko_results["gene_pair"] = double_ko_results["ids"].apply(
+    lambda s: tuple(sorted(s)) if len(s) == 2 else None
+)
+double_ko_results = double_ko_results.dropna(subset=["gene_pair"])
+double_ko_results["relative_growth"] = double_ko_results["growth"] / wt_growth
+
+# Build a lookup of single-KO relative growth for each gene, to identify
+# pairs that are synthetically lethal (both individually viable, jointly not)
+single_lookup = ko_results.set_index("gene_id")["relative_growth"].to_dict()
+
+def is_synthetic_lethal(row):
+    g1, g2 = row["gene_pair"]
+    single_g1 = single_lookup.get(g1, np.nan)
+    single_g2 = single_lookup.get(g2, np.nan)
+    both_viable_alone = (single_g1 > 0.01) and (single_g2 > 0.01)
+    jointly_lethal = row["relative_growth"] < 0.01
+    return both_viable_alone and jointly_lethal
+
+double_ko_results["synthetic_lethal"] = double_ko_results.apply(is_synthetic_lethal, axis=1)
+
+synthetic_lethal_pairs = double_ko_results[double_ko_results["synthetic_lethal"]]
+n_synthetic_lethal = synthetic_lethal_pairs.shape[0]
+n_pairs_tested = double_ko_results.shape[0]
+
+synthetic_lethal_pairs[["gene_pair", "relative_growth"]].head(10)
+```
+
+```{python}
+#| label: double-ko-summary
+print(f"Gene pairs tested: {n_pairs_tested}")
+print(f"Synthetic lethal pairs found: {n_synthetic_lethal}")
+```
+
+11 candidate genes met the screening criteria, giving 55 pairs tested, and 2 came back synthetic lethal: (b2465, b2935) and (b0118, b1276). Both genes in each pair were individually non-essential in Section 7 — neither made the essential-gene list above — yet removing both simultaneously collapsed growth. That's the finding single-knockout screening structurally cannot produce: each gene alone has a working backup route, but the two genes' backup routes turn out to be *each other*, so losing both removes the function entirely. This is the direct computational analogue of a wet-lab synthetic lethality screen, and identifying candidate pairs computationally before running the far more expensive double-knockout experiment is a standard use case for genome-scale models in practice.
+
+## Takeaways
+
+::: {.callout-important title="Key findings" icon="false"}
+- Plain FBA and pFBA both converged on the same growth rate (0.874 1/h), as they must by construction, but pFBA's minimal-total-flux solution is the more defensible reference point for interpreting *which* reactions carry flux — the two solutions carry the same growth signal through visibly different routes.
+- FVA's widest-range reactions weren't noise: FORt/FORt2 (formate transport), the NADTRHD/THD2 transhydrogenase pair, and the PGI/G6PDH2r glycolysis-versus-pentose-phosphate-pathway split are all recognisable, textbook cases of genuine pathway redundancy — a distinction plain FBA's single solution cannot surface on its own.
+- Growth tracked substrate entry point exactly as predicted: glucose and fructose were identical (0.874 1/h, both entering at the same point in glycolysis), succinate dropped to 0.398, and acetate — entering furthest downstream — was slowest at 0.173. The model's stoichiometry reproduces real *E. coli* physiology without needing to be told to.
+- Only 5 of 137 genes (3.6%) were classified essential under aerobic glucose minimal media — gltA, gapA, eno, pgk, and icd — a list that matches known central-metabolism biology closely enough to check by hand: three non-branching glycolytic steps and two committed TCA cycle steps, each with no alternate route in this model. Essentiality is conditional on the modelled environment, not an intrinsic gene property, and this analysis only characterised one condition.
+- Two synthetic lethal pairs turned up among 55 tested: (b2465, b2935) and (b0118, b1276) — both genes in each pair were individually non-essential, meaning single-knockout screening alone would have missed them entirely. This is precisely the kind of prediction genome-scale models are positioned to generate ahead of, and to prioritise, the wet-lab double-knockout experiments that would otherwise need to test every pair blind.
+:::
+
+#SystemsBiology #FluxBalanceAnalysis #COBRApy #MetabolicModeling #SyntheticBiology #Genomics #Python #Bioinformatics

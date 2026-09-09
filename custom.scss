@@ -1,0 +1,121 @@
+/*-- scss:defaults --*/
+
+@import url('https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+$font-family-sans-serif: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !default;
+$font-family-serif:      "Newsreader", Georgia, "Times New Roman", serif !default;
+$font-family-monospace:  "IBM Plex Mono", "SFMono-Regular", Consolas, monospace !default;
+
+$body-bg:    #FAFAF8 !default;
+$body-color: #1B2430 !default;
+
+$primary:   #0F5F5C !default;  // deep teal — the one accent that carries weight
+$secondary: #C98A2C !default;  // muted amber — used sparingly (warning callouts, tags)
+$link-color:       #0F5F5C !default;
+$link-hover-color: #0A4442 !default;
+
+$headings-font-family: $font-family-serif !default;
+$headings-font-weight: 500 !default;
+$headings-color: #14202B !default;
+$h1-font-size: 2.3rem !default;
+$h2-font-size: 1.6rem !default;
+$h3-font-size: 1.3rem !default;
+
+$border-color: #E0E1DB !default;
+
+$navbar-bg: $body-bg !default;
+$navbar-fg: $body-color !default;
+
+$code-color: #7A4B1E !default;
+$code-bg:    #F1EFE8 !default;
+
+// Callouts tied to the site palette instead of default bright bootstrap colors
+$callout-color-note:      $primary !default;
+$callout-color-tip:       #3E7A45 !default;
+$callout-color-caution:   #B5651D !default;
+$callout-color-warning:   $secondary !default;
+$callout-color-important: #8A3B2B !default;
+
+/*-- scss:rules --*/
+
+body { line-height: 1.7; }
+
+.navbar {
+  border-bottom: 1px solid $border-color;
+  box-shadow: none;
+}
+.navbar-brand {
+  font-family: $font-family-serif;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+.navbar .nav-link { font-size: 0.95rem; }
+
+h1.title {
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* Editorial "standfirst" — the site intro paragraph, styled as a small
+   serif lede rather than plain body copy. Wrap the paragraph in
+   ::: {.site-intro} ... ::: in index.qmd / about.qmd to apply. */
+.site-intro {
+  font-family: $font-family-serif;
+  font-size: 1.28rem;
+  line-height: 1.65;
+  color: #33404A;
+  max-width: 640px;
+  margin: 0.25rem 0 2.75rem 0;
+  padding-bottom: 2rem;
+  border-bottom: 1px solid $border-color;
+}
+
+/* Article listing — an editorial index, not a SaaS card grid.
+   Note: Quarto's exact listing class names can shift slightly by
+   version. If any of these don't visibly apply after `quarto render`,
+   inspect the rendered index.html with browser dev tools and send me
+   the actual class names — easy to correct in one pass. */
+.quarto-listing-container-default .quarto-post {
+  display: block;
+  border-top: none;
+  border-bottom: 1px solid $border-color;
+  padding: 1.75rem 0;
+  margin: 0;
+}
+.quarto-listing-container-default .quarto-post:first-of-type {
+  border-top: 1px solid $border-color;
+}
+.quarto-post .metadata {
+  font-family: $font-family-sans-serif;
+  font-size: 0.82rem;
+  color: #5B6470;
+}
+.quarto-post .listing-title,
+.quarto-post .listing-title a {
+  font-family: $font-family-serif;
+  font-weight: 500;
+  font-size: 1.5rem;
+  color: $headings-color;
+  text-decoration: none;
+}
+.quarto-post .listing-title a:hover { color: $primary; }
+.quarto-post .listing-description {
+  font-family: $font-family-sans-serif;
+  color: #333F49;
+  margin-top: 0.35rem;
+}
+.listing-categories .listing-category {
+  font-family: $font-family-sans-serif;
+  font-size: 0.72rem;
+  color: $primary;
+  background: transparent;
+  border: 1px solid rgba(15, 95, 92, 0.35);
+  border-radius: 3px;
+  padding: 0.1rem 0.5rem;
+}
+
+.nav-footer {
+  font-family: $font-family-sans-serif;
+  font-size: 0.85rem;
+  color: #5B6470;
+}

@@ -3,7 +3,7 @@ project:
   output-dir: docs
 
 website:
-  title: "Peekei | Biostatistics & Bioinformatics"
+  title: "Peekei"
   description: "Applied biostatistics, computational biology, and genomics — worked examples, methods notes, and reproducible analyses."
   navbar:
     left:
@@ -11,22 +11,31 @@ website:
         text: Articles
       - href: about.qmd
         text: About
+      - href: https://github.com/Real-peekei/omicsuite
+        text: omicsuite
     right:
       - icon: github
-        href: https://github.com/
+        href: https://github.com/Real-peekei
+        aria-label: GitHub
   page-footer:
-    center: "© Peekei"
+    left: "© Peekei"
+    right: "Built with [Quarto](https://quarto.org)"
+    border: true
 
 format:
   html:
-    theme: flatly
-    css: styles.css
+    theme: [flatly, custom.scss]
+    highlight-style: github
     toc: true
     toc-float: true
     fig-caption: true
+    fig-cap-location: bottom
     code-fold: false
     grid:
-      body-width: 900px
+      body-width: 780px
+      sidebar-width: 250px
+      margin-width: 200px
+    smooth-scroll: true
 
 execute:
   freeze: auto
