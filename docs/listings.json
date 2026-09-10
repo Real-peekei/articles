@@ -2,6 +2,7 @@
   {
     "listing": "/index.html",
     "items": [
+      "/articles/metabolic-flux-analysis-final.html",
       "/articles/bayesian-longitudinal-glm-final.html",
       "/articles/multiomics-final.html",
       "/articles/stochastic-sir-seir-final.html",

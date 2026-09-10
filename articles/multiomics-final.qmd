@@ -8,6 +8,8 @@ format:
   html:
     toc: true
     toc-float: true
+    code-fold: true
+    code-summary: "Show code"
     fig-cap-location: bottom
 ---
 
@@ -623,7 +625,9 @@ auc_int  <- py$results[["Multi-omics"]]
 auc_gain <- round((auc_int - auc_rna) * 100, 1)
 ```
 
+::: {.callout-warning title="Methodological caveat: feature leakage"}
 Cross-validated AUC: genomics only = 0.954, transcriptomics alone = 1.000, integrated multi-omics = 1.000. This is worth stating plainly rather than forcing the "integration wins" narrative the earlier sections set up: transcriptomics and the integrated model tied, both at ceiling. Part of that ceiling is a genuine simulation property — the transcriptomic effect (LFC ≈ 1.8 across 80 genes) is large. But part of it is a methodological issue worth naming directly: the 20 transcriptomics features were selected by testing for differential expression across the *entire* cohort, then reused as classifier inputs. That's feature selection performed outside the cross-validation loop, and it leaks label information into the feature set before the model ever sees held-out data — a peer reviewer would flag this immediately, and a corrected version of this analysis would nest the DE-based feature selection inside each CV fold rather than fixing it beforehand. Real RNA-seq biomarkers essentially never reach AUC = 1.0 on independent validation; this result is inflated by that leakage, not just by simulation effect size. Where the gain is real and not subject to this concern is genomics vs. multi-omics: 0.954 to 1.000, a 4.6-point improvement — genomics wasn't pre-selected for separability the way the transcriptomics features were, so that comparison is the more trustworthy one in this analysis. The SHAP analysis shows Factor 1 (mean |SHAP| = 0.406) dominating the classifier's decisions by roughly 30-fold over the next most influential factor (Factor 4, mean |SHAP| = 0.014), consistent with Factor 1 capturing nearly the entire subtype-discriminating signal across the joint omic space.
+:::
 
 ## 6. Systems Biology Interpretation
 
@@ -800,13 +804,19 @@ med_surv_b <- summary(km_fit)$table["subtype=B", "median"]
 
 Patient P023 (Subtype A): extreme Factor 1 loading (14.64), elevated TMB (33), high CNV instability (1.41) — and, tellingly, an observed time of just 1 month with an event recorded. Patient P179 (Subtype B): the mirror image — Factor 1 loading of -14.06, TMB of 0, CNV score of -0.87, and 21.2 months of follow-up with no event. These aren't cherry-picked for the contrast; they were selected purely on Factor 1 extremity, and the survival difference fell out of that selection on its own. The KM curves confirm the pattern holds across the full cohort: subtype assignment — derived purely from multi-omics profiling, with no survival information used during classification — stratifies patients with genuinely different outcomes (log-rank p = 1.49e-09, median survival 9.2 vs. 28.5 months). That predictive validity, emerging from molecular data alone, is the promise of multi-omics personalised medicine.
 
+::: {.callout-tip title="Run this yourself"}
+The unsupervised integration step here — multiple omic blocks combined into shared latent factors — is close in spirit to `integrate_multiomics()` in [`omicsuite`](https://github.com/Real-peekei/omicsuite), which runs RGCCA-based block integration with a bootstrap loading-stability check and returns a structured verdict table. The downstream ML classification and SHAP interpretability layer here goes beyond what the package currently packages.
+:::
+
 ## 8. Takeaways
 
+::: {.callout-important title="Key findings" icon="false"}
 - The AUC comparison surfaced an honest limitation rather than a clean "integration wins" story: transcriptomics alone hit AUC = 1.000, tying the integrated model, partly because the simulated effect size was large and partly because of a real methodological issue — the transcriptomics features were DE-selected on the full dataset before being fed to the classifier, which leaks label information ahead of cross-validation and inflates both numbers. The trustworthy comparison in this analysis is genomics (0.954, not pre-selected) to multi-omics (1.000) — a 4.6-point gain where integration demonstrably closed a real gap.
 - The latent factor structure of the integrated data is interpretable: Factor 1 alone explains 41.6% of joint variance, dominates the SHAP importance ranking roughly 30-fold over the next factor, and patients with extreme Factor 1 loadings have the most extreme single-omic profiles across every layer. Integration doesn't produce a black box here — it produces a lower-dimensional representation that is arguably more legible than any individual omic layer.
 - The pathway enrichment step returned no significant hits (0 of 10, top FDR = 0.35) — and that null result is expected given how the simulation was built: pathway membership was randomly assigned, independent of true DE status, purely to demonstrate the contingency-table and multiple-testing mechanics of enrichment analysis. With real, curated pathway databases and a genuine biological DE signal concentrated in specific processes, the same methodology would surface real enrichment. The mechanics transfer directly; only the input mapping needs to be biologically grounded.
 - The ML-derived subtype labels predicted survival without any survival information used during model training. That extrapolation — from molecular profiling to clinical outcome — is the operational definition of personalised medicine, and it depends on having a complete enough omic view of the patient to capture the relevant biological variation.
 - The R + Python integration via `reticulate` is seamless for this workflow: R handles the statistical modelling and visualisation where its ecosystem is stronger (limma, survminer, pheatmap), Python handles the ML and SHAP layer where scikit-learn and the SHAP library are more mature. Neither language does everything best; neither should have to.
 - Cancer as a genomic disease means that somatic alterations (TMB, CNV) initiate the cascade, but the phenotype a clinician sees — proliferative rate, immune evasion, drug resistance — is the product of that cascade propagating through transcription, translation, metabolism, and epigenetic remodelling. Measuring only the initiating layer, or only one downstream layer, gives an incomplete picture of a complete process.
+:::
 
 #MultiOmics #Genomics #Transcriptomics #Proteomics #Metabolomics #Epigenomics #MachineLearning #SystemsBiology #PersonalisedMedicine #Bioinformatics #RStats #Python #CancerGenomics

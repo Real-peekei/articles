@@ -8,6 +8,8 @@ format:
   html:
     toc: true
     toc-float: true
+    code-fold: true
+    code-summary: "Show code"
     fig-cap-location: bottom
 ---
 
@@ -422,15 +424,23 @@ conv_results %>%
   theme(legend.position = "none")
 ```
 
+::: {.callout-important title="What this means in practice"}
 At N = 100, attack rate SD across major epidemics is 3.73 percentage points. By N = 10,000 it is down to 0.42 points — the distribution has collapsed around the ODE's 94.1% prediction. But at N = 2,000, SD is still 0.74 points wide, and that's with 80 replicates; in practice the uncertainty in a single outbreak would look wider still. Schools, workplaces, care homes — the settings where early outbreak decisions matter most — sit in this range. Deterministic models applied there aren't conservative; they're reporting precision the underlying mathematics doesn't support.
+:::
+
+::: {.callout-tip title="Run this yourself"}
+The same Gillespie-based SIR/SEIR engine — trajectories, R0, extinction probability, and final-size distributions, returned with a structured verdict table — is available as `simulate_gillespie_epidemic()` in [`omicsuite`](https://github.com/Real-peekei/omicsuite).
+:::
 
 ## Takeaways
 
+::: {.callout-important title="Key findings" icon="false"}
 - The ODE SIR is not a conservative version of the stochastic process — it is a structurally different object that cannot produce extinction events, bimodal size distributions, or trajectory variability. These omissions are not numerical approximation errors; they are qualitative features the ODE is missing by construction.
 - At R0 = 3, stochastic extinction occurred in 31% of simulated introductions from a single index case — matching the branching-process approximation of 1/R0 = 33%. Reporting "epidemic will occur" for any R0 > 1 is wrong by this margin before any parameter uncertainty is considered.
 - The final size distribution is bimodal: a cluster near zero (extinction) and a separate cluster near the major-epidemic attack rate. The ODE's single prediction sits inside the major-epidemic cluster — conditionally reasonable, unconditionally misleading.
 - Adding the exposed compartment (SEIR) produced slightly *higher* extinction probability (36.7%) than SIR (31%) under identical β and γ. The latent period doesn't straightforwardly protect against chain extinction — exposed individuals can't transmit, so if the infectious class collapses before seeding enough secondary cases, the chain dies even with exposed individuals still in the pipeline. Whether the latent period raises or lowers extinction depends on the σ/γ ratio and population structure.
 - Convergence to the ODE limit is real but slow. Stochastic variability remains meaningful at N = 2,000 for these parameters, which is the scale of many practical outbreak settings. Deterministic models used at this scale are not conservative simplifications — they are reporting false precision about quantities they cannot actually compute.
 - The Gillespie algorithm is exact for continuous-time Markov chains with these rate structures. It is the right baseline to validate approximate stochastic methods (tau-leaping, moment closure, diffusion approximations) against when computational speed is needed.
+:::
 
 #Biostatistics #EpidemicModeling #StochasticProcesses #SIRModel #InfectiousDiseases #RStats #PublicHealth #Bioinformatics

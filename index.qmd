@@ -15,4 +15,4 @@ title-block-banner: false
 Worked examples spanning biostatistics, bioinformatics, computational biology, and machine learning — Cox models, Bayesian hierarchical methods, epidemic modeling, multi-omics integration, and whatever comes next. Analyses run in both R and Python depending on what the problem calls for, not a fixed toolkit. Each article is a full reproducible analysis: simulated or public data, code, diagnostics, and an honest read of what the numbers do and don't support.
 :::
 
-These four methods — survival, RNA-seq, epidemic, multi-omics — are also available as reusable R functions in [`omicsuite`](https://github.com/Real-peekei/omicsuite), with full documentation on its own [pkgdown site](https://real-peekei.github.io/omicsuite/).
+The same underlying methods — and a growing set beyond what's covered here — are also available as reusable R functions in [`omicsuite`](https://github.com/Real-peekei/omicsuite), an extensible pipeline collection for biostatistics, bioinformatics, and computational biology, with full documentation on its own [pkgdown site](https://real-peekei.github.io/omicsuite/).

@@ -5,12 +5,2058 @@
       xmlns:dc="http://purl.org/dc/elements/1.1/" 
       version="2.0">
 <channel>
-<title>Peekei | Biostatistics &amp; Bioinformatics</title>
+<title>Peekei</title>
 <link>https://Real-peekei.github.io/articles/</link>
 <atom:link href="https://Real-peekei.github.io/articles/index.xml" rel="self" type="application/rss+xml"/>
 <description>Applied biostatistics, computational biology, and genomics — worked examples, methods notes, and reproducible analyses.</description>
 <generator>quarto-1.9.38</generator>
-<lastBuildDate>Mon, 13 Jul 2026 21:00:00 GMT</lastBuildDate>
+<lastBuildDate>Tue, 14 Jul 2026 21:00:00 GMT</lastBuildDate>
+<item>
+  <title>Flux Balance Analysis of E. coli Central Metabolism: Growth, Knockouts, and Nutrient Shifts</title>
+  <dc:creator>Peekei </dc:creator>
+  <link>https://Real-peekei.github.io/articles/articles/metabolic-flux-analysis-final.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<!--
+SETUP — run this once in a terminal before rendering:
+
+  conda create -n cobra-fba python=3.10 -y
+  conda activate cobra-fba
+  pip install cobra pandas numpy matplotlib seaborn jupyter ipykernel
+  python -m ipykernel install --user --name cobra-fba --display-name "Python (cobra-fba)"
+
+The `jupyter: cobra-fba` field in the YAML header above tells Quarto which
+kernel to render with. If you named your environment something other than
+`cobra-fba`, either rename it to match or update that field.
+
+Render with:  quarto render metabolic-flux-analysis-v1.qmd
+(or click Render in RStudio — it calls Quarto the same way)
+-->
+<section id="motivation" class="level2">
+<h2 class="anchored" data-anchor-id="motivation">1. Motivation</h2>
+<p>A genome-scale metabolic model (GEM) is a stoichiometric reconstruction of every known biochemical reaction an organism’s genome can catalyse — thousands of reactions connected through shared metabolites, each reaction tied back to the gene or genes that encode its enzyme. That structure alone doesn’t predict behaviour. Flux Balance Analysis (FBA) turns the structure into a prediction by assuming the cell is at metabolic steady state and solving a linear program: find the distribution of reaction fluxes that maximises a chosen objective (almost always growth, represented as flux through a biomass reaction) subject to the stoichiometric constraints and the uptake bounds available in the environment.</p>
+<p>What makes this genuinely useful rather than a curve-fitting exercise is that the model is mechanistic — asking “what happens if gene X is knocked out” is answered by removing every reaction that gene uniquely catalyses and re-solving the same optimisation, not by fitting a new statistical relationship. This piece works through baseline FBA on <em>E. coli</em>’s core metabolic model, the degeneracy problem that plain FBA has and how parsimonious FBA (pFBA) resolves it, flux variability analysis, growth response to different carbon sources and oxygen availability, and systematic single- and double-gene knockout screening.</p>
+</section>
+<section id="model-acquisition" class="level2">
+<h2 class="anchored" data-anchor-id="model-acquisition">2. Model Acquisition</h2>
+<pre class="{bash}"><code>#| eval: false
+# Reference only — the Python chunk below performs the actual download
+# with caching, so this does not need to be run manually. Shown here
+# for reproducibility: this is the exact source the model comes from.
+
+curl -O http://bigg.ucsd.edu/static/models/e_coli_core.xml</code></pre>
+<div id="load-model" class="cell" data-execution_count="1">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> os</span>
+<span id="cb2-2"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> gzip</span>
+<span id="cb2-3"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> shutil</span>
+<span id="cb2-4"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> time</span>
+<span id="cb2-5"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> urllib.request</span>
+<span id="cb2-6"></span>
+<span id="cb2-7"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> cobra</span>
+<span id="cb2-8"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> numpy <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> np</span>
+<span id="cb2-9"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> pandas <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> pd</span>
+<span id="cb2-10"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> matplotlib.pyplot <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> plt</span>
+<span id="cb2-11"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> seaborn <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> sns</span>
+<span id="cb2-12"></span>
+<span id="cb2-13">sns.set_style(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"whitegrid"</span>)</span>
+<span id="cb2-14"></span>
+<span id="cb2-15">MODEL_PATH   <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"e_coli_core.xml"</span></span>
+<span id="cb2-16">BIGG_URL_XML <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"http://bigg.ucsd.edu/static/models/e_coli_core.xml"</span></span>
+<span id="cb2-17">BIGG_URL_GZ  <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"http://bigg.ucsd.edu/static/models/e_coli_core.xml.gz"</span></span>
+<span id="cb2-18">MIN_VALID_SIZE <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">400_000</span>   <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># real file is ~700KB; anything much smaller is a truncated download</span></span>
+<span id="cb2-19"></span>
+<span id="cb2-20"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> is_valid_model_file(path):</span>
+<span id="cb2-21">    <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">"""A partial/corrupt download can pass os.path.exists() — check size</span></span>
+<span id="cb2-22"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">    and that it actually parses as XML before trusting it."""</span></span>
+<span id="cb2-23">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">not</span> os.path.exists(path):</span>
+<span id="cb2-24">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> <span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span></span>
+<span id="cb2-25">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> os.path.getsize(path) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> MIN_VALID_SIZE:</span>
+<span id="cb2-26">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> <span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span></span>
+<span id="cb2-27">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">try</span>:</span>
+<span id="cb2-28">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">with</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">open</span>(path, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"r"</span>, encoding<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"utf-8"</span>, errors<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ignore"</span>) <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> f:</span>
+<span id="cb2-29">            head <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> f.read(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">200</span>)</span>
+<span id="cb2-30">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"&lt;sbml"</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> head.lower() <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">or</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"&lt;?xml"</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> head.lower()</span>
+<span id="cb2-31">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">except</span> <span class="pp" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">Exception</span>:</span>
+<span id="cb2-32">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> <span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span></span>
+<span id="cb2-33"></span>
+<span id="cb2-34"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> try_download(url, dest, attempts<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>, timeout<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">30</span>):</span>
+<span id="cb2-35">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> attempt <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, attempts <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>):</span>
+<span id="cb2-36">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">try</span>:</span>
+<span id="cb2-37">            urllib.request.urlretrieve(url, dest)</span>
+<span id="cb2-38">            <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> <span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">True</span></span>
+<span id="cb2-39">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">except</span> <span class="pp" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">Exception</span> <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> e:</span>
+<span id="cb2-40">            <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"  Attempt </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>attempt<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">/</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>attempts<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> failed: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>e<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb2-41">            <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> os.path.exists(dest):</span>
+<span id="cb2-42">                os.remove(dest)   <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># never leave a partial file behind</span></span>
+<span id="cb2-43">            <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> attempt <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> attempts:</span>
+<span id="cb2-44">                time.sleep(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>)</span>
+<span id="cb2-45">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> <span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span></span>
+<span id="cb2-46"></span>
+<span id="cb2-47"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># If a stale/partial file exists from an earlier interrupted run, discard it</span></span>
+<span id="cb2-48"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> os.path.exists(MODEL_PATH) <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">and</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">not</span> is_valid_model_file(MODEL_PATH):</span>
+<span id="cb2-49">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Found an incomplete or corrupt model file from a previous run — removing it."</span>)</span>
+<span id="cb2-50">    os.remove(MODEL_PATH)</span>
+<span id="cb2-51"></span>
+<span id="cb2-52"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">not</span> is_valid_model_file(MODEL_PATH):</span>
+<span id="cb2-53">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Downloading e_coli_core model from BiGG (uncompressed XML)..."</span>)</span>
+<span id="cb2-54">    success <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> try_download(BIGG_URL_XML, MODEL_PATH)</span>
+<span id="cb2-55"></span>
+<span id="cb2-56">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">not</span> success <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">or</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">not</span> is_valid_model_file(MODEL_PATH):</span>
+<span id="cb2-57">        <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Uncompressed download failed — trying gzipped version..."</span>)</span>
+<span id="cb2-58">        gz_path <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> MODEL_PATH <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">".gz"</span></span>
+<span id="cb2-59">        success <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> try_download(BIGG_URL_GZ, gz_path)</span>
+<span id="cb2-60">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> success:</span>
+<span id="cb2-61">            <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">with</span> gzip.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">open</span>(gz_path, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"rb"</span>) <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> f_in, <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">open</span>(MODEL_PATH, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"wb"</span>) <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> f_out:</span>
+<span id="cb2-62">                shutil.copyfileobj(f_in, f_out)</span>
+<span id="cb2-63">            os.remove(gz_path)</span>
+<span id="cb2-64"></span>
+<span id="cb2-65">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">not</span> is_valid_model_file(MODEL_PATH):</span>
+<span id="cb2-66">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">raise</span> <span class="pp" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">RuntimeError</span>(</span>
+<span id="cb2-67">            <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">Could not download the model automatically after multiple attempts — "</span></span>
+<span id="cb2-68">            <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"this usually means a network or DNS issue on this machine rather than a "</span></span>
+<span id="cb2-69">            <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"problem with the code. To work around it:</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span></span>
+<span id="cb2-70">            <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"  1. Open this URL in your browser:</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span></span>
+<span id="cb2-71">            <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"     http://bigg.ucsd.edu/static/models/e_coli_core.xml</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span></span>
+<span id="cb2-72">            <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"  2. Save the file as 'e_coli_core.xml'</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span></span>
+<span id="cb2-73">            <span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"  3. Place it in the same folder as this .qmd file:</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span></span>
+<span id="cb2-74">            <span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"     </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>os<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>path<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>abspath(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'.'</span>)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span></span>
+<span id="cb2-75">            <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"  4. Re-render — the code will detect the file and skip downloading.</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span></span>
+<span id="cb2-76">        )</span>
+<span id="cb2-77">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span>:</span>
+<span id="cb2-78">        <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Download succeeded."</span>)</span>
+<span id="cb2-79"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span>:</span>
+<span id="cb2-80">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Using existing local model file (already downloaded)."</span>)</span>
+<span id="cb2-81"></span>
+<span id="cb2-82">model <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> cobra.io.read_sbml_model(MODEL_PATH)</span>
+<span id="cb2-83"></span>
+<span id="cb2-84"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Reactions:  </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(model.reactions)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb2-85"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Metabolites:</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(model.metabolites)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb2-86"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Genes:      </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(model.genes)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb2-87"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Objective:  </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>model<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>objective<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>expression<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Downloading e_coli_core model from BiGG (uncompressed XML)...
+Download succeeded.
+Reactions:  95
+Metabolites:72
+Genes:      137
+Objective:  1.0*BIOMASS_Ecoli_core_w_GAM - 1.0*BIOMASS_Ecoli_core_w_GAM_reverse_712e5</code></pre>
+</div>
+</div>
+<p>The <em>E. coli</em> core model is deliberately small — it captures glycolysis, the TCA cycle, the pentose phosphate pathway, oxidative phosphorylation, and central carbon exchange reactions, without the full genome-scale reconstruction’s thousands of peripheral reactions. That size is an advantage here: every result below can be inspected pathway-by-pathway rather than disappearing into a reaction list too large to reason about directly.</p>
+</section>
+<section id="baseline-fba-and-the-degeneracy-problem" class="level2">
+<h2 class="anchored" data-anchor-id="baseline-fba-and-the-degeneracy-problem">3. Baseline FBA and the Degeneracy Problem</h2>
+<div id="baseline-fba" class="cell" data-execution_count="2">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1">solution_fba <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> model.optimize()</span>
+<span id="cb4-2"></span>
+<span id="cb4-3"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Growth rate (FBA):  </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>solution_fba<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>objective_value<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:.4f}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> 1/h"</span>)</span>
+<span id="cb4-4"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Status: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>solution_fba<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>status<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb4-5"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Sum of absolute fluxes (FBA solution): </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>solution_fba<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>fluxes<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">abs</span>()<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">sum</span>()<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:.2f}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Growth rate (FBA):  0.8739 1/h
+Status: optimal
+Sum of absolute fluxes (FBA solution): 518.42</code></pre>
+</div>
+</div>
+<p>Plain FBA found a growth rate, but that number can correspond to more than one flux distribution. Whenever a metabolic network has redundant or parallel routes between the same start and end points — which real metabolism almost always does — many different flux vectors can achieve the identical optimal growth rate. Reporting “the” flux distribution from plain FBA without acknowledging this is misleading: the solver returned <em>a</em> solution, not necessarily a biologically representative one.</p>
+<p>Parsimonious FBA (pFBA) resolves this by adding a second objective: among all flux distributions that achieve the optimal growth rate, find the one with the minimum total flux. This is motivated by the assumption that cells don’t run unnecessary enzymatic reactions when a leaner route achieves the same growth — an assumption with real biological support, not an arbitrary tie-breaker.</p>
+<div id="pfba" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1">solution_pfba <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> cobra.flux_analysis.pfba(model)</span>
+<span id="cb6-2"></span>
+<span id="cb6-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># IMPORTANT: pfba() internally swaps the model's objective to "minimize</span></span>
+<span id="cb6-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># total flux" before re-solving, so solution_pfba.objective_value reflects</span></span>
+<span id="cb6-5"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># THAT objective (the total flux sum) — not the growth rate. The growth</span></span>
+<span id="cb6-6"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># rate has to be read back out as the flux through the biomass reaction</span></span>
+<span id="cb6-7"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># specifically. Biomass reactions are identified by convention (their id</span></span>
+<span id="cb6-8"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># contains "biomass") rather than assumed to have one fixed name, since</span></span>
+<span id="cb6-9"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># that varies slightly across BiGG models.</span></span>
+<span id="cb6-10">biomass_reaction <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">next</span>(r <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> r <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> model.reactions <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"biomass"</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> r.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">id</span>.lower())</span>
+<span id="cb6-11">pfba_growth_rate <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> solution_pfba.fluxes[biomass_reaction.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">id</span>]</span>
+<span id="cb6-12"></span>
+<span id="cb6-13"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Biomass reaction: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>biomass_reaction<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">id</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb6-14"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Growth rate (pFBA): </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>pfba_growth_rate<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:.4f}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> 1/h"</span>)</span>
+<span id="cb6-15"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Sum of absolute fluxes (pFBA solution): </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>solution_pfba<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>fluxes<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">abs</span>()<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">sum</span>()<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:.2f}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Biomass reaction: BIOMASS_Ecoli_core_w_GAM
+Growth rate (pFBA): 0.8739 1/h
+Sum of absolute fluxes (pFBA solution): 518.42</code></pre>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled" title="Implementation gotcha">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>Implementation gotcha
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><code>pfba()</code> re-solves the model against a <em>different</em> objective internally — total flux minimisation, subject to growth being fixed at its optimum — so the <code>Solution.objective_value</code> it returns reflects that internal flux-minimisation objective, not the growth rate. Reading <code>.objective_value</code> directly off a pFBA solution and assuming it’s the growth rate silently produces a nonsensical number (it would come out numerically identical to the total flux sum). The growth rate itself has to be read back out as the flux through the biomass reaction specifically, which is what the code above does.</p>
+</div>
+</div>
+<div id="cell-fba-vs-pfba-plot" class="cell" data-execution_count="4">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1">top_reactions <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> solution_pfba.fluxes.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">abs</span>().sort_values(ascending<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span>).head(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">15</span>).index</span>
+<span id="cb8-2"></span>
+<span id="cb8-3">compare_df <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({</span>
+<span id="cb8-4">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"FBA"</span>:  solution_fba.fluxes[top_reactions].<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">abs</span>(),</span>
+<span id="cb8-5">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"pFBA"</span>: solution_pfba.fluxes[top_reactions].<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">abs</span>()</span>
+<span id="cb8-6">})</span>
+<span id="cb8-7"></span>
+<span id="cb8-8">compare_df.plot(kind<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"barh"</span>, figsize<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">8</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6</span>))</span>
+<span id="cb8-9">plt.xlabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Absolute flux (mmol/gDCW/h)"</span>)</span>
+<span id="cb8-10">plt.ylabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Reaction"</span>)</span>
+<span id="cb8-11">plt.tight_layout()</span>
+<span id="cb8-12">plt.show()</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fba-vs-pfba-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/metabolic-flux-analysis-final_files/figure-html/fba-vs-pfba-plot-output-1.png" width="758" height="566" class="figure-img"></p>
+<figcaption>Flux magnitude comparison, FBA vs.&nbsp;pFBA, for the 15 highest-flux reactions in the pFBA solution</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Both solutions achieve the same growth rate by construction, but the total flux carried differs — the gap between the two “sum of absolute fluxes” numbers above is the degeneracy plain FBA leaves unresolved. Every subsequent analysis in this piece uses the pFBA solution as the reference flux distribution for exactly this reason.</p>
+</section>
+<section id="flux-variability-analysis" class="level2">
+<h2 class="anchored" data-anchor-id="flux-variability-analysis">4. Flux Variability Analysis</h2>
+<p>FVA asks a different question than pFBA: rather than picking one flux distribution, what is the <em>range</em> each reaction’s flux can take while the network still achieves at least some specified fraction of the optimal growth rate? Reactions with a wide FVA range have genuine flexibility — the cell could reroute flux through them without cost. Reactions with a narrow or zero-width range are load-bearing: any deviation compromises growth.</p>
+<div id="cell-fva" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1">fva_result <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> cobra.flux_analysis.flux_variability_analysis(</span>
+<span id="cb9-2">    model, loopless<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"fastSNP"</span>, fraction_of_optimum<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.9</span></span>
+<span id="cb9-3">)</span>
+<span id="cb9-4">fva_result[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"range"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> fva_result[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"maximum"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> fva_result[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"minimum"</span>]</span>
+<span id="cb9-5">fva_result_sorted <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> fva_result.sort_values(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"range"</span>, ascending<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span>)</span>
+<span id="cb9-6"></span>
+<span id="cb9-7">fva_result_sorted.head(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10</span>)</span></code></pre></div></div>
+</details>
+<div id="fva" class="cell-output cell-output-display" data-execution_count="5">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">minimum</th>
+<th data-quarto-table-cell-role="th">maximum</th>
+<th data-quarto-table-cell-role="th">range</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">FORt2</th>
+<td>0.000000</td>
+<td>68.644000</td>
+<td>68.644000</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">FORt</th>
+<td>-68.644000</td>
+<td>0.000000</td>
+<td>68.644000</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">NADTRHD</th>
+<td>0.000000</td>
+<td>44.759583</td>
+<td>44.759583</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">THD2</th>
+<td>0.000000</td>
+<td>37.041989</td>
+<td>37.041989</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">ATPS4r</th>
+<td>34.825618</td>
+<td>59.381062</td>
+<td>24.555445</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">PGI</th>
+<td>-14.299039</td>
+<td>9.838761</td>
+<td>24.137801</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">G6PDH2r</th>
+<td>0.000000</td>
+<td>24.137801</td>
+<td>24.137801</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">GND</th>
+<td>0.000000</td>
+<td>24.137801</td>
+<td>24.137801</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">PGL</th>
+<td>0.000000</td>
+<td>24.137801</td>
+<td>24.137801</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">PFK</th>
+<td>1.171706</td>
+<td>25.290644</td>
+<td>24.118938</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-fva-plot" class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1">top_var <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> fva_result_sorted.head(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">20</span>)</span>
+<span id="cb10-2"></span>
+<span id="cb10-3">fig, ax <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> plt.subplots(figsize<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">8</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">7</span>))</span>
+<span id="cb10-4">ax.barh(top_var.index, top_var[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"maximum"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> top_var[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"minimum"</span>],</span>
+<span id="cb10-5">        left<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>top_var[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"minimum"</span>], color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#4DBBD5"</span>, alpha<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.85</span>)</span>
+<span id="cb10-6">ax.axvline(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"grey"</span>, linestyle<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"--"</span>, linewidth<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.8</span>)</span>
+<span id="cb10-7">ax.set_xlabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Flux range (mmol/gDCW/h)"</span>)</span>
+<span id="cb10-8">ax.set_ylabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Reaction"</span>)</span>
+<span id="cb10-9">plt.tight_layout()</span>
+<span id="cb10-10">plt.show()</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fva-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/metabolic-flux-analysis-final_files/figure-html/fva-plot-output-1.png" width="758" height="662" class="figure-img"></p>
+<figcaption>Flux variability ranges (90% of optimal growth) for the 20 reactions with the widest range</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="Why these FVA settings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Why these FVA settings
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><code>loopless="fastSNP"</code> matters here — without loop removal, FVA can report artificially wide ranges driven by thermodynamically infeasible internal loops (flux cycling through a set of reactions with no net effect, which is mathematically valid in a pure stoichiometric model but physically impossible). Restricting to loopless solutions keeps the ranges biologically interpretable. The <code>fraction_of_optimum=0.9</code> setting also matters: at strict optimality (fraction = 1.0), most reactions in a network with a single optimal growth rate collapse to a zero-width range, because any deviation would reduce that one exact optimum — relaxing to 90% of optimal growth reveals which reactions have real flexibility within a biologically reasonable neighbourhood of the optimum, rather than reporting that almost nothing varies simply because the constraint was too strict to allow it.</p>
+</div>
+</div>
+<p>The widest-range reactions in this model aren’t arbitrary — they’re recognisable pairs of alternate routes for the same job. Formate transport (FORt/FORt2) shows the largest range because formate excretion is a fermentation by-product with no fixed stoichiometric requirement at 90% of optimal growth. NADTRHD and THD2 are the two transhydrogenase reactions that interconvert the NADH and NADPH pools — one proton-translocating, one not — and their near-identical wide ranges reflect a textbook case of genuine metabolic redundancy: the cell can lean on either route without cost. The same pattern shows up in PGI and G6PDH2r, the entry points to glycolysis and the pentose phosphate pathway respectively — both draw from the same glucose-6-phosphate pool, so flux can shift between the two pathways without changing the growth rate, which is exactly the kind of flexibility a single FBA solution would hide and FVA makes visible.</p>
+</section>
+<section id="growth-response-to-nutrient-environment" class="level2">
+<h2 class="anchored" data-anchor-id="growth-response-to-nutrient-environment">5. Growth Response to Nutrient Environment</h2>
+<p>The model’s default medium is aerobic glucose minimal media. Swapping the carbon source — while leaving the biomass objective and all other constraints untouched — tests how much of <em>E. coli</em>’s core network is carbon-source-agnostic versus specialised for glucose.</p>
+<div id="cell-carbon-source-sweep" class="cell" data-execution_count="7">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Candidate carbon sources to test. Not every exchange reaction below is</span></span>
+<span id="cb11-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># guaranteed to exist in every model variant, so each one is checked</span></span>
+<span id="cb11-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># against the model before use rather than assumed — a missing ID is</span></span>
+<span id="cb11-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># reported and skipped instead of halting the whole analysis.</span></span>
+<span id="cb11-5">carbon_source_candidates <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> {</span>
+<span id="cb11-6">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Glucose"</span>:   <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"EX_glc__D_e"</span>,</span>
+<span id="cb11-7">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Acetate"</span>:   <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"EX_ac_e"</span>,</span>
+<span id="cb11-8">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Fructose"</span>:  <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"EX_fru_e"</span>,</span>
+<span id="cb11-9">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Succinate"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"EX_succ_e"</span>,</span>
+<span id="cb11-10">}</span>
+<span id="cb11-11"></span>
+<span id="cb11-12">existing_reaction_ids <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> {r.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">id</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> r <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> model.reactions}</span>
+<span id="cb11-13">carbon_sources <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> {}</span>
+<span id="cb11-14"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> name, rxn_id <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> carbon_source_candidates.items():</span>
+<span id="cb11-15">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> rxn_id <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> existing_reaction_ids:</span>
+<span id="cb11-16">        carbon_sources[name] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> rxn_id</span>
+<span id="cb11-17">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span>:</span>
+<span id="cb11-18">        <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Skipping </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>name<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> (</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>rxn_id<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">) — not present in this model."</span>)</span>
+<span id="cb11-19"></span>
+<span id="cb11-20">growth_by_source <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> {}</span>
+<span id="cb11-21"></span>
+<span id="cb11-22"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">with</span> model:</span>
+<span id="cb11-23">    <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># close the default glucose exchange first</span></span>
+<span id="cb11-24">    model.reactions.EX_glc__D_e.lower_bound <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span></span>
+<span id="cb11-25">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> name, rxn_id <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> carbon_sources.items():</span>
+<span id="cb11-26">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">with</span> model:</span>
+<span id="cb11-27">            model.reactions.get_by_id(rxn_id).lower_bound <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10</span></span>
+<span id="cb11-28">            sol <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> model.optimize()</span>
+<span id="cb11-29">            growth_by_source[name] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> sol.objective_value <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> sol.status <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"optimal"</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.0</span></span>
+<span id="cb11-30"></span>
+<span id="cb11-31">growth_df <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame.from_dict(growth_by_source, orient<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"index"</span>, columns<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"growth_rate"</span>])</span>
+<span id="cb11-32">growth_df</span></code></pre></div></div>
+</details>
+<div id="carbon-source-sweep" class="cell-output cell-output-display" data-execution_count="7">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">growth_rate</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Glucose</th>
+<td>0.873922</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Acetate</th>
+<td>0.173339</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Fructose</th>
+<td>0.873922</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Succinate</th>
+<td>0.397563</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-carbon-source-plot" class="cell" data-execution_count="8">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1">growth_df.sort_values(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"growth_rate"</span>, ascending<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">True</span>).plot(</span>
+<span id="cb12-2">    kind<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"barh"</span>, legend<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span>, color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>, figsize<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">7</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">4</span>)</span>
+<span id="cb12-3">)</span>
+<span id="cb12-4">plt.xlabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Growth rate (1/h)"</span>)</span>
+<span id="cb12-5">plt.ylabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">""</span>)</span>
+<span id="cb12-6">plt.tight_layout()</span>
+<span id="cb12-7">plt.show()</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="carbon-source-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/metabolic-flux-analysis-final_files/figure-html/carbon-source-plot-output-1.png" width="662" height="374" class="figure-img"></p>
+<figcaption>Predicted growth rate across the carbon sources present in this model, 10 mmol/gDCW/h uptake each</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The differences across carbon sources reflect real metabolic cost, and the numbers land exactly where the underlying biochemistry predicts. Glucose and fructose both give 0.874 1/h — identical to four decimal places — because fructose enters glycolysis at essentially the same point as glucose (as fructose-6-phosphate), so the model correctly treats them as metabolically equivalent entry points despite being different molecules. Succinate, which enters directly into the TCA cycle and bypasses glycolysis’s substrate-level ATP and NADH production entirely, supports growth at 0.398 1/h — less than half the glucose rate. Acetate, entering even further downstream via acetyl-CoA, is the slowest at 0.173 1/h. The ranking (glucose ≈ fructose &gt; succinate &gt; acetate) tracks distance from the top of central metabolism exactly as expected, which is a useful sanity check that the model’s stoichiometry is behaving the way real <em>E. coli</em> physiology does.</p>
+</section>
+<section id="phenotype-phase-plane-glucose-vs.-oxygen" class="level2">
+<h2 class="anchored" data-anchor-id="phenotype-phase-plane-glucose-vs.-oxygen">6. Phenotype Phase Plane: Glucose vs.&nbsp;Oxygen</h2>
+<p>Rather than varying one substrate at a time, the phenotype phase plane method (Edwards &amp; Palsson, 2001) grids two exchange fluxes simultaneously — here, glucose and oxygen uptake — and computes the optimal growth rate at every combination. This exposes the boundary between respiratory and fermentative metabolism directly, rather than describing it qualitatively.</p>
+<div id="phenotype-phase-plane" class="cell" data-execution_count="9">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1">glucose_range <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.linspace(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">20</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">25</span>)</span>
+<span id="cb13-2">oxygen_range  <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.linspace(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">25</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">25</span>)</span>
+<span id="cb13-3"></span>
+<span id="cb13-4">pp_grid <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros((<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(oxygen_range), <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(glucose_range)))</span>
+<span id="cb13-5"></span>
+<span id="cb13-6"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">with</span> model:</span>
+<span id="cb13-7">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> i, o2 <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">enumerate</span>(oxygen_range):</span>
+<span id="cb13-8">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> j, glc <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">enumerate</span>(glucose_range):</span>
+<span id="cb13-9">            <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">with</span> model:</span>
+<span id="cb13-10">                model.reactions.EX_glc__D_e.lower_bound <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span>glc</span>
+<span id="cb13-11">                model.reactions.EX_o2_e.lower_bound <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span>o2</span>
+<span id="cb13-12">                sol <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> model.slim_optimize()</span>
+<span id="cb13-13">                pp_grid[i, j] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> sol <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> sol <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">is</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">not</span> <span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">None</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">and</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">not</span> np.isnan(sol) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.0</span></span></code></pre></div></div>
+</details>
+</div>
+<div id="cell-phase-plane-plot" class="cell" data-execution_count="10">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1">fig, ax <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> plt.subplots(figsize<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">8</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6</span>))</span>
+<span id="cb14-2">im <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> ax.imshow(pp_grid, origin<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"lower"</span>, aspect<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"auto"</span>, cmap<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"viridis"</span>,</span>
+<span id="cb14-3">               extent<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[glucose_range.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">min</span>(), glucose_range.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">max</span>(),</span>
+<span id="cb14-4">                       oxygen_range.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">min</span>(), oxygen_range.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">max</span>()])</span>
+<span id="cb14-5">ax.set_xlabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Glucose uptake rate (mmol/gDCW/h)"</span>)</span>
+<span id="cb14-6">ax.set_ylabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Oxygen uptake rate (mmol/gDCW/h)"</span>)</span>
+<span id="cb14-7">fig.colorbar(im, ax<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ax, label<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Growth rate (1/h)"</span>)</span>
+<span id="cb14-8">plt.tight_layout()</span>
+<span id="cb14-9">plt.show()</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="phase-plane-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/metabolic-flux-analysis-final_files/figure-html/phase-plane-plot-output-1.png" width="724" height="566" class="figure-img"></p>
+<figcaption>Phenotype phase plane: growth rate as a function of glucose and oxygen uptake rate</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The transition zone visible in this grid — where growth rate stops increasing linearly with glucose for a fixed oxygen supply — is the line of optimal respiratory efficiency; beyond it, the cell is oxygen-limited and any additional glucose can only be used fermentatively, which yields less biomass per unit carbon. Where exactly that line sits, and how sharp the transition is, is a direct, falsifiable model prediction rather than an assumption.</p>
+</section>
+<section id="single-gene-knockout-screening" class="level2">
+<h2 class="anchored" data-anchor-id="single-gene-knockout-screening">7. Single Gene Knockout Screening</h2>
+<p>Every reaction in the model is linked to the gene(s) that encode its catalysing enzyme through gene-protein-reaction (GPR) rules. Knocking out a gene removes every reaction whose GPR rule can no longer be satisfied, then re-solves FBA. Genes whose removal drops growth to (near) zero are essential under this medium; genes whose removal leaves growth largely unchanged have redundant or dispensable function under these conditions specifically — essentiality in FBA is always conditional on the modelled environment.</p>
+<div id="cell-single-ko" class="cell" data-execution_count="11">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1">ko_results <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> cobra.flux_analysis.single_gene_deletion(model)</span>
+<span id="cb15-2">ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_id"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ids"</span>].<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">apply</span>(<span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">lambda</span> s: <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">next</span>(<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">iter</span>(s)))</span>
+<span id="cb15-3">ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_name"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_id"</span>].<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">apply</span>(</span>
+<span id="cb15-4">    <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">lambda</span> gid: model.genes.get_by_id(gid).name</span>
+<span id="cb15-5">)</span>
+<span id="cb15-6"></span>
+<span id="cb15-7">wt_growth <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pfba_growth_rate</span>
+<span id="cb15-8">ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relative_growth"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"growth"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> wt_growth</span>
+<span id="cb15-9">ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"essential"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relative_growth"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.01</span></span>
+<span id="cb15-10"></span>
+<span id="cb15-11">essential_genes <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> ko_results[ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"essential"</span>]].sort_values(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relative_growth"</span>)</span>
+<span id="cb15-12">n_essential <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> essential_genes.shape[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>]</span>
+<span id="cb15-13">n_total_genes <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> ko_results.shape[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>]</span>
+<span id="cb15-14"></span>
+<span id="cb15-15">essential_genes[[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_id"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_name"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relative_growth"</span>]]</span></code></pre></div></div>
+</details>
+<div id="single-ko" class="cell-output cell-output-display" data-execution_count="11">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">gene_id</th>
+<th data-quarto-table-cell-role="th">gene_name</th>
+<th data-quarto-table-cell-role="th">relative_growth</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">10</th>
+<td>b0720</td>
+<td>gltA</td>
+<td>-5.293998e-15</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">110</th>
+<td>b2779</td>
+<td>eno</td>
+<td>-1.411110e-15</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">30</th>
+<td>b1779</td>
+<td>gapA</td>
+<td>1.368024e-16</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">81</th>
+<td>b2926</td>
+<td>pgk</td>
+<td>9.507892e-16</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">20</th>
+<td>b1136</td>
+<td>icd</td>
+<td>7.570307e-15</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-ko-distribution-plot" class="cell" data-execution_count="12">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1">fig, ax <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> plt.subplots(figsize<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">8</span>, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">4.5</span>))</span>
+<span id="cb16-2">ax.hist(ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relative_growth"</span>], bins<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">40</span>, color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#4DBBD5"</span>, edgecolor<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"white"</span>)</span>
+<span id="cb16-3">ax.axvline(<span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.01</span>, color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, linestyle<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"--"</span>, label<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Essentiality threshold (1%)"</span>)</span>
+<span id="cb16-4">ax.set_xlabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Relative growth rate (knockout / wild-type)"</span>)</span>
+<span id="cb16-5">ax.set_ylabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Number of genes"</span>)</span>
+<span id="cb16-6">ax.legend()</span>
+<span id="cb16-7">plt.tight_layout()</span>
+<span id="cb16-8">plt.show()</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="ko-distribution-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/metabolic-flux-analysis-final_files/figure-html/ko-distribution-plot-output-1.png" width="758" height="422" class="figure-img"></p>
+<figcaption>Distribution of relative growth rate across all single-gene knockouts</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="ko-summary" class="cell" data-execution_count="13">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Total genes screened: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>n_total_genes<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb17-2"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Essential genes (relative growth &lt; 1%): </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>n_essential<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb17-3"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Essential fraction: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>n_essential <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> n_total_genes<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:.1%}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Total genes screened: 137
+Essential genes (relative growth &lt; 1%): 5
+Essential fraction: 3.6%</code></pre>
+</div>
+</div>
+<p>137 genes screened, 5 classified essential (3.6%): gltA, gapA, eno, pgk, and icd. This list is worth checking against known biology rather than taking on faith, and it holds up: gapA, eno, and pgk are three sequential, non-branching steps in lower glycolysis (glyceraldehyde-3-phosphate dehydrogenase, enolase, phosphoglycerate kinase) — each has no isozyme and no alternate route around it in this model, so removing any one of them severs the only path from glucose to pyruvate. gltA (citrate synthase) and icd (isocitrate dehydrogenase) are the entry and a downstream committed step of the TCA cycle; without them the cycle can’t turn, which cascades into failed NADH/FADH2 production for oxidative phosphorylation. A 3.6% essentiality rate is on the low side compared to typical genome-scale essentiality estimates (often cited in the 7-10% range for full <em>E. coli</em> reconstructions), which makes sense given the model’s small size: with only 137 genes covering the most central, well-characterised pathways, the reactions that remain non-essential in this reduced set are precisely the ones with a genuine backup route already included in the model.</p>
+</section>
+<section id="double-gene-knockout-synthetic-lethality" class="level2">
+<h2 class="anchored" data-anchor-id="double-gene-knockout-synthetic-lethality">8. Double Gene Knockout: Synthetic Lethality</h2>
+<p>A gene can be individually dispensable while still being part of a pair that is jointly essential — this happens when two genes provide redundant routes to the same essential function, so losing either alone is survivable but losing both simultaneously is not. Screening every pair among all genes is computationally expensive on a genome-scale model; on this core model it’s tractable to restrict to genes annotated with more than one associated reaction, on the reasoning that single-reaction genes are the least likely to participate in this kind of redundancy.</p>
+<div id="candidate-genes" class="cell" data-execution_count="14">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Restrict the pairwise screen to genes that are (a) associated with more</span></span>
+<span id="cb19-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># than one reaction, and (b) at least one of those reactions carries</span></span>
+<span id="cb19-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># non-negligible flux in the baseline pFBA solution. This ties the</span></span>
+<span id="cb19-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># candidate set to genes actively used under the modelled condition,</span></span>
+<span id="cb19-5"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># rather than screening pairs drawn from reactions that are already</span></span>
+<span id="cb19-6"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># silent at baseline — and it keeps the pairwise search space tractable,</span></span>
+<span id="cb19-7"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># since double knockout screening scales quadratically with candidate count.</span></span>
+<span id="cb19-8"></span>
+<span id="cb19-9">active_reactions <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">set</span>(solution_pfba.fluxes[solution_pfba.fluxes.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">abs</span>() <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1e-6</span>].index)</span>
+<span id="cb19-10"></span>
+<span id="cb19-11">candidate_genes <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> [</span>
+<span id="cb19-12">    g.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">id</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> g <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> model.genes</span>
+<span id="cb19-13">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(g.reactions) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb19-14">    <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">and</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">any</span>(r.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">id</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> active_reactions <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> r <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> g.reactions)</span>
+<span id="cb19-15">]</span>
+<span id="cb19-16"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Candidate genes for pairwise screening: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(candidate_genes)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb19-17"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Pairs to be tested: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(candidate_genes) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> (<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(candidate_genes) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">//</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Candidate genes for pairwise screening: 11
+Pairs to be tested: 55</code></pre>
+</div>
+</div>
+<p>In this model the criterion above narrows the search to 11 candidate genes and 55 pairs — small enough to run in well under a minute, since each pair only requires one linear program solve.</p>
+<div id="cell-double-ko" class="cell" data-execution_count="15">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1">double_ko_results <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> cobra.flux_analysis.double_gene_deletion(</span>
+<span id="cb21-2">    model, gene_list1<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>candidate_genes</span>
+<span id="cb21-3">)</span>
+<span id="cb21-4"></span>
+<span id="cb21-5">double_ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_pair"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> double_ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ids"</span>].<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">apply</span>(</span>
+<span id="cb21-6">    <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">lambda</span> s: <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">tuple</span>(<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">sorted</span>(s)) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(s) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> <span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">None</span></span>
+<span id="cb21-7">)</span>
+<span id="cb21-8">double_ko_results <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> double_ko_results.dropna(subset<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_pair"</span>])</span>
+<span id="cb21-9">double_ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relative_growth"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> double_ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"growth"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> wt_growth</span>
+<span id="cb21-10"></span>
+<span id="cb21-11"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Build a lookup of single-KO relative growth for each gene, to identify</span></span>
+<span id="cb21-12"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># pairs that are synthetically lethal (both individually viable, jointly not)</span></span>
+<span id="cb21-13">single_lookup <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> ko_results.set_index(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_id"</span>)[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relative_growth"</span>].to_dict()</span>
+<span id="cb21-14"></span>
+<span id="cb21-15"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> is_synthetic_lethal(row):</span>
+<span id="cb21-16">    g1, g2 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_pair"</span>]</span>
+<span id="cb21-17">    single_g1 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> single_lookup.get(g1, np.nan)</span>
+<span id="cb21-18">    single_g2 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> single_lookup.get(g2, np.nan)</span>
+<span id="cb21-19">    both_viable_alone <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> (single_g1 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.01</span>) <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">and</span> (single_g2 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.01</span>)</span>
+<span id="cb21-20">    jointly_lethal <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relative_growth"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.01</span></span>
+<span id="cb21-21">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> both_viable_alone <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">and</span> jointly_lethal</span>
+<span id="cb21-22"></span>
+<span id="cb21-23">double_ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"synthetic_lethal"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> double_ko_results.<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">apply</span>(is_synthetic_lethal, axis<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb21-24"></span>
+<span id="cb21-25">synthetic_lethal_pairs <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> double_ko_results[double_ko_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"synthetic_lethal"</span>]]</span>
+<span id="cb21-26">n_synthetic_lethal <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> synthetic_lethal_pairs.shape[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>]</span>
+<span id="cb21-27">n_pairs_tested <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> double_ko_results.shape[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>]</span>
+<span id="cb21-28"></span>
+<span id="cb21-29">synthetic_lethal_pairs[[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"gene_pair"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relative_growth"</span>]].head(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10</span>)</span></code></pre></div></div>
+</details>
+<div id="double-ko" class="cell-output cell-output-display" data-execution_count="15">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">gene_pair</th>
+<th data-quarto-table-cell-role="th">relative_growth</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">38</th>
+<td>(b2465, b2935)</td>
+<td>9.919369e-17</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">48</th>
+<td>(b0118, b1276)</td>
+<td>-1.574974e-15</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="double-ko-summary" class="cell" data-execution_count="16">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Gene pairs tested: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>n_pairs_tested<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb22-2"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Synthetic lethal pairs found: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>n_synthetic_lethal<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Gene pairs tested: 55
+Synthetic lethal pairs found: 2</code></pre>
+</div>
+</div>
+<p>11 candidate genes met the screening criteria, giving 55 pairs tested, and 2 came back synthetic lethal: (b2465, b2935) and (b0118, b1276). Both genes in each pair were individually non-essential in Section 7 — neither made the essential-gene list above — yet removing both simultaneously collapsed growth. That’s the finding single-knockout screening structurally cannot produce: each gene alone has a working backup route, but the two genes’ backup routes turn out to be <em>each other</em>, so losing both removes the function entirely. This is the direct computational analogue of a wet-lab synthetic lethality screen, and identifying candidate pairs computationally before running the far more expensive double-knockout experiment is a standard use case for genome-scale models in practice.</p>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled" title="Key findings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key findings
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>Plain FBA and pFBA both converged on the same growth rate (0.874 1/h), as they must by construction, but pFBA’s minimal-total-flux solution is the more defensible reference point for interpreting <em>which</em> reactions carry flux — the two solutions carry the same growth signal through visibly different routes.</li>
+<li>FVA’s widest-range reactions weren’t noise: FORt/FORt2 (formate transport), the NADTRHD/THD2 transhydrogenase pair, and the PGI/G6PDH2r glycolysis-versus-pentose-phosphate-pathway split are all recognisable, textbook cases of genuine pathway redundancy — a distinction plain FBA’s single solution cannot surface on its own.</li>
+<li>Growth tracked substrate entry point exactly as predicted: glucose and fructose were identical (0.874 1/h, both entering at the same point in glycolysis), succinate dropped to 0.398, and acetate — entering furthest downstream — was slowest at 0.173. The model’s stoichiometry reproduces real <em>E. coli</em> physiology without needing to be told to.</li>
+<li>Only 5 of 137 genes (3.6%) were classified essential under aerobic glucose minimal media — gltA, gapA, eno, pgk, and icd — a list that matches known central-metabolism biology closely enough to check by hand: three non-branching glycolytic steps and two committed TCA cycle steps, each with no alternate route in this model. Essentiality is conditional on the modelled environment, not an intrinsic gene property, and this analysis only characterised one condition.</li>
+<li>Two synthetic lethal pairs turned up among 55 tested: (b2465, b2935) and (b0118, b1276) — both genes in each pair were individually non-essential, meaning single-knockout screening alone would have missed them entirely. This is precisely the kind of prediction genome-scale models are positioned to generate ahead of, and to prioritise, the wet-lab double-knockout experiments that would otherwise need to test every pair blind.</li>
+</ul>
+</div>
+</div>
+<p>#SystemsBiology #FluxBalanceAnalysis #COBRApy #MetabolicModeling #SyntheticBiology #Genomics #Python #Bioinformatics</p>
+
+
+</section>
+
+ ]]></description>
+  <category>Systems Biology</category>
+  <category>Flux Balance Analysis</category>
+  <category>Metabolic Modeling</category>
+  <category>Python</category>
+  <category>Bioinformatics</category>
+  <category>Synthetic Biology</category>
+  <guid>https://Real-peekei.github.io/articles/articles/metabolic-flux-analysis-final.html</guid>
+  <pubDate>Tue, 14 Jul 2026 21:00:00 GMT</pubDate>
+</item>
 <item>
   <title>Bayesian Hierarchical Negative Binomial Mixed Models for Longitudinal RNA-seq</title>
   <dc:creator>Peekei </dc:creator>

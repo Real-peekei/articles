@@ -8,6 +8,8 @@ format:
   html:
     toc: true
     toc-float: true
+    code-fold: true
+    code-summary: "Show code"
     fig-cap-location: bottom
 ---
 
@@ -134,7 +136,9 @@ gene_mm %>%
   theme_minimal()
 ```
 
+::: {.callout-note title="Why the SE went down, not up"}
 Standard error on the time slope from the fixed-effects GLM: 0.031. From the mixed model with subject random intercepts: 0.015 — a ratio of 0.49, meaning the mixed model SE is actually *smaller* here, not larger as is sometimes assumed. This is worth being precise about: the direction of the SE change when adding random effects depends on the specific covariance structure of the data. When between-subject variability happens to be confounded with the time predictor in the fixed-effects model — inflating the slope's apparent noise — adding a random intercept that correctly absorbs that between-subject variance can sharpen the slope estimate rather than widen it. Gene 12 is a case of that. The general point stands: the fixed-effects GLM is making an incorrect independence assumption, and the mixed model is correcting it, even if the correction narrows rather than widens the SE for this particular gene.
+:::
 
 ## 5. Layer 3 — Bayesian Hierarchical Model
 
@@ -441,13 +445,19 @@ For Gene `r null_gene_id` — truly null, true slope = `r round(null_true, 3)` �
 
 Gene `r de_gene_id` — genuinely DE, true slope = `r round(de_true, 3)` — goes the other way. Naive: `r round(de_naive, 3)`, GLM: `r round(de_glm, 3)`, Bayesian: `r round(de_bayes, 3)`. Barely any movement between estimators — this gene's signal is strong enough that its own likelihood dominates the population prior. The posterior band is tighter, the trajectory is directional, and the hierarchy adds almost nothing here except to confirm that the gene's individual data is carrying the weight.
 
+::: {.callout-tip title="Run this yourself"}
+The same three-layer approach — negative binomial structure, repeated-measures handling, and Bayesian hierarchical shrinkage across genes — is packaged as `fit_rnaseq_nb_pipeline()` in [`omicsuite`](https://github.com/Real-peekei/omicsuite), which fits via `brms` rather than hand-written Stan and returns convergence, dispersion, and per-gene shrinkage checks as a structured verdict table.
+:::
+
 ## Takeaways
 
+::: {.callout-important title="Key findings" icon="false"}
 - Each modeling layer earns its place in the data structure: the negative binomial handles overdispersion the Poisson can't absorb, the random intercept correctly partitions between-subject variability the fixed-effects GLM misattributes to time, and the Bayesian hierarchy regularizes noisy gene-level slope estimates by borrowing across all `r n_genes` genes simultaneously.
 - The three-stage RMSE comparison — 0.029 (naive) → 0.028 (NB GLM) → 0.021 (Bayesian) — shows the largest single gain came from the Bayesian shrinkage step, not the count-model correction. Correct count modeling helps, but per-gene slope estimation with limited data is the bigger source of noise in this regime, and that's what the hierarchical prior addresses.
 - MCMC convergence was verified directly: maximum Rhat across all monitored parameters was 1.017 and the hyperparameter-level Rhats were all at or below 1.000. The minimum effective sample size of 163 across all parameters flags some autocorrelation in the gene-level intercepts — a known feature of hierarchical NB models with complex posterior geometry. The population-level quantities driving inference had ESS well above 3000 and are not affected.
 - The posterior predictive check confirmed the NB likelihood with gene-specific dispersion reproduces the observed count distribution's spread — a step convergence diagnostics alone cannot validate, and one that's skipped more often than it should be.
 - Shrinkage here is adaptive, not uniform: the degree to which a gene's estimate gets pulled toward the population mean is determined by the strength of that gene's own likelihood, not by any analyst-specified threshold.
 - The population-level hyperparameters (mu_slope, sigma_slope) are estimated from the data — the model learns both the typical trajectory across genes and the gene-to-gene variability around it, rather than treating either as a fixed tuning parameter.
+:::
 
 #Biostatistics #Bayesian #RNAseq #Genomics #LongitudinalData #MixedModels #GLM #Bioinformatics #RStats
