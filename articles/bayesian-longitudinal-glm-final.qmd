@@ -19,11 +19,20 @@ knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
 library(MASS)
 library(tidyverse)
 library(lme4)
-library(rstan)
+library(cmdstanr)
+library(posterior)
 library(bayesplot)
 
+# Before knitting for the first time, run this ONCE in your R console:
+#
+#   install.packages("cmdstanr", repos = c("https://stan-dev.r-universe.dev", getOption("repos")))
+#   cmdstanr::install_cmdstan(cores = 4)
+#
+# cmdstanr compiles a standalone CmdStan binary locally using Rtools' own
+# toolchain, rather than loading a prebuilt rstan.dll — this sidesteps the
+# rstan/StanHeaders Windows ABI mismatches entirely.
+
 options(mc.cores = parallel::detectCores())
-rstan_options(auto_write = TRUE)
 set.seed(412)
 ```
 
@@ -181,7 +190,8 @@ model {
   }
 }
 "
-stan_mod <- stan_model(model_code = stan_code)
+stan_file <- write_stan_file(stan_code)
+stan_mod  <- cmdstan_model(stan_file)
 ```
 
 ```{r prep-stan-data}
@@ -204,18 +214,31 @@ if (file.exists(fit_path)) {
   fit <- readRDS(fit_path)
 } else {
   message("No cached fit found — running sampler now.")
-  fit <- sampling(
-    stan_mod,
-    data    = stan_data,
-    chains  = 4,
-    iter    = 2000,
-    warmup  = 1000,
-    seed    = 412,
-    control = list(adapt_delta = 0.90)
+  fit <- stan_mod$sample(
+    data            = stan_data,
+    chains          = 4,
+    parallel_chains = 4,
+    iter_warmup     = 1000,
+    iter_sampling   = 1000,
+    seed            = 412,
+    adapt_delta     = 0.90,
+    refresh         = 0
   )
-  saveRDS(fit, fit_path)
+  fit$save_object(file = fit_path)
   message("Fit saved to disk.")
 }
+
+# Flat draws matrix used throughout the rest of this article — columns are
+# named e.g. "beta[12]", "u_subject[3]" following Stan's array-flattening
+# convention. Converted to a plain base-R matrix (stripping posterior's
+# draws_matrix class) so downstream arithmetic — e.g. inside MASS::rnegbin()
+# — doesn't run into that class's own stricter Ops methods on subsetted rows.
+post_matrix <- as_draws_matrix(fit$draws())
+post_matrix <- matrix(
+  as.numeric(post_matrix),
+  nrow = nrow(post_matrix),
+  dimnames = dimnames(post_matrix)
+)
 ```
 
 The key structural line is `beta[g] ~ normal(mu_slope, sigma_slope)`: every gene's temporal slope is drawn from a shared population distribution whose mean and spread are estimated from all `r n_genes` genes simultaneously. `u_subject[s] ~ normal(0, sigma_subject)` handles the repeated-measures correlation — each subject carries a persistent log-scale offset across genes and timepoints, absorbing the between-subject variability the fixed-effects GLM would otherwise misattribute to time.
@@ -224,23 +247,24 @@ The key structural line is `beta[g] ~ normal(mu_slope, sigma_slope)`: every gene
 
 ```{r convergence}
 hyper_pars <- c("mu_slope", "sigma_slope", "sigma_subject")
-conv_table <- summary(fit, pars = hyper_pars)$summary
+conv_table <- fit$summary(variables = hyper_pars)
 conv_table
 ```
 
 ```{r rhat-extract}
-all_rhat <- summary(fit)$summary[, "Rhat"]
-all_neff <- summary(fit)$summary[, "n_eff"]
+all_summary <- fit$summary()
+all_rhat <- all_summary$rhat
+all_neff <- all_summary$ess_bulk
 max_rhat <- max(all_rhat, na.rm = TRUE)
 min_neff <- min(all_neff, na.rm = TRUE)
 
-mu_slope_est  <- conv_table["mu_slope",     "mean"]
-sig_slope_est <- conv_table["sigma_slope",  "mean"]
-sig_subj_est  <- conv_table["sigma_subject","mean"]
+mu_slope_est  <- conv_table$mean[conv_table$variable == "mu_slope"]
+sig_slope_est <- conv_table$mean[conv_table$variable == "sigma_slope"]
+sig_subj_est  <- conv_table$mean[conv_table$variable == "sigma_subject"]
 ```
 
 ```{r trace-plots, fig.cap="Trace plots for population-level hyperparameters across all four chains"}
-mcmc_trace(fit, pars = hyper_pars)
+mcmc_trace(fit$draws(variables = hyper_pars))
 ```
 
 ```{r rhat-plot, fig.cap="Distribution of Rhat values across all monitored parameters — dashed line at 1.01"}
@@ -252,12 +276,15 @@ ggplot(rhat_df, aes(x = rhat)) +
   theme_minimal()
 ```
 
-Maximum Rhat across all monitored parameters: 1.017. That's technically above the conventional 1.01 threshold, though barely — the hyperparameters themselves (mu_slope Rhat = 1.000, sigma_slope = 1.000, sigma_subject = 1.000) are clean, and the trace plots confirm stable mixing across all four chains with no drift or funnel collapse. The elevated maximum is coming from a handful of gene-level parameters, not the population-level quantities driving inference. More notable is the minimum effective sample size of 163 — low relative to the 4000 post-warmup draws, which means some parameters are autocorrelated enough that the chains aren't mixing as freely as the trace plots suggest. This is a known feature of hierarchical NB models: the gene-level intercepts and the subject random effects can create posterior geometry that slows down exploration. In a publication context this would warrant either a longer run or reparameterization (non-centered parameterization for the gene-level slopes); for this analysis the hyperparameter ESS values are well above 3000 and the primary inferential targets are stable. Population-level estimates: mu_slope = 0.006, sigma_slope = 0.092, sigma_subject = 0.639.
+::: {.callout-note title="Numbers below reflect the original rstan run"}
+The Rhat/ESS figures quoted in the prose below (1.017, 163, etc.) are from the original sampler run. `cmdstanr` uses the same NUTS algorithm and should reproduce essentially identical posteriors, but re-running with the new backend may shift these by a small amount — worth re-checking against your own render rather than trusting the hard-coded numbers here word for word.
+:::
+
+Maximum Rhat across all monitored parameters: 1.017. That's technically above the conventional 1.01 threshold, though barely — the hyperparameters themselves (mu_slope Rhat = 1.000, sigma_slope = 1.000, sigma_subject = 1.000) are clean, and the trace plots confirm stable mixing across all four chains with no drift or funnel collapse. The elevated maximum is coming from a handful of gene-level parameters, not the population-level quantities driving inference. More notable is the minimum bulk effective sample size of 163 — low relative to the 4000 post-warmup draws, which means some parameters are autocorrelated enough that the chains aren't mixing as freely as the trace plots suggest. This is a known feature of hierarchical NB models: the gene-level intercepts and the subject random effects can create posterior geometry that slows down exploration. In a publication context this would warrant either a longer run or reparameterization (non-centered parameterization for the gene-level slopes); for this analysis the hyperparameter ESS values are well above 3000 and the primary inferential targets are stable. Population-level estimates: mu_slope = 0.006, sigma_slope = 0.092, sigma_subject = 0.639.
 
 ## 7. Posterior Predictive Check
 
 ```{r ppc-setup}
-post        <- rstan::extract(fit)
 n_draws_ppc <- 60
 ppc_gene_id <- 10
 
@@ -265,17 +292,22 @@ obs_counts <- sim_data %>% filter(gene == ppc_gene_id) %>% pull(count)
 obs_idx    <- which(sim_data$gene == ppc_gene_id)
 n_obs_gene <- length(obs_idx)
 
-draw_idx <- sample(seq_len(dim(post$beta)[1]), n_draws_ppc)
+alpha_mat <- post_matrix[, paste0("alpha[", 1:n_genes, "]")]
+beta_mat  <- post_matrix[, paste0("beta[", 1:n_genes, "]")]
+u_mat     <- post_matrix[, paste0("u_subject[", 1:n_subjects, "]")]
+phi_mat   <- post_matrix[, paste0("phi[", 1:n_genes, "]")]
+
+draw_idx <- sample(seq_len(nrow(post_matrix)), n_draws_ppc)
 ppc_rep  <- matrix(NA, nrow = n_draws_ppc, ncol = n_obs_gene)
 
 for (i in seq_along(draw_idx)) {
   d <- draw_idx[i]
-  log_mu_vec   <- post$alpha[d, ppc_gene_id] +
-                  post$beta[d, ppc_gene_id] * sim_data$week[obs_idx] +
-                  post$u_subject[d, sim_data$subject[obs_idx]]
+  log_mu_vec   <- alpha_mat[d, ppc_gene_id] +
+                  beta_mat[d, ppc_gene_id] * sim_data$week[obs_idx] +
+                  u_mat[d, sim_data$subject[obs_idx]]
   ppc_rep[i, ] <- rnegbin(n_obs_gene,
                            mu    = exp(log_mu_vec),
-                           theta = post$phi[d, ppc_gene_id])
+                           theta = phi_mat[d, ppc_gene_id])
 }
 ```
 
@@ -310,7 +342,7 @@ glm_slopes <- map(1:n_genes, function(g) {
 # Stage 3: Bayesian posterior means
 bayes_slopes <- tibble(
   gene        = 1:n_genes,
-  bayes_slope = colMeans(post$beta)
+  bayes_slope = colMeans(beta_mat)
 )
 
 comparison <- tibble(gene = 1:n_genes, true_slope = true_slope) %>%
@@ -376,7 +408,7 @@ de_gene_id <- comparison %>%
 
 n_traj_draws  <- 200
 week_seq      <- seq(0, 12, length.out = 50)
-draw_idx_traj <- sample(seq_len(dim(post$beta)[1]), n_traj_draws)
+draw_idx_traj <- sample(seq_len(nrow(beta_mat)), n_traj_draws)
 
 traj_data <- map(c(null_gene_id, de_gene_id), function(g) {
   map(seq_along(draw_idx_traj), function(i) {
@@ -384,7 +416,7 @@ traj_data <- map(c(null_gene_id, de_gene_id), function(g) {
     tibble(
       gene      = g,
       week      = week_seq,
-      log_count = post$alpha[d, g] + post$beta[d, g] * week_seq,
+      log_count = alpha_mat[d, g] + beta_mat[d, g] * week_seq,
       draw      = i
     )
   }) |> list_rbind()
