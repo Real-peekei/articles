@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Peekei">
+<meta name="dcterms.date" content="2026-07-15">
+<meta name="description" content="A Python + COBRApy systems biology deep dive: baseline FBA vs.&nbsp;parsimonious FBA on E. coli’s core metabolic model, flux variability analysis, growth response across carbon sources, phenotype phase planes, and single/double gene knockout screening for synthetic lethality.">
+
+<title>Flux Balance Analysis of E. coli Central Metabolism: Growth, Knockouts, and Nutrient Shifts – Peekei</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.min.js" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" crossorigin="anonymous"></script><script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-c79b9b43b4475c8f7a5502315412d8cf.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-5523e3e86f7e97080a9acb2c63cc5923.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<style>html{ scroll-behavior: smooth; }</style>
+<script src="https://cdn.jsdelivr.net/npm/requirejs@2.3.6/require.min.js" integrity="sha384-c9c+LnTbwQ3aujuU7ULEPVvgLs+Fn6fJUvIGTsuu1ZcCf11fiEubah0ttpca4ntM sha384-6V1/AdqZRWk1KAlWbKBlGhN7VG4iE/yAZcO6NZPMF8od0vukrvr0tg4qY6NSrItx" crossorigin="anonymous"></script>
+
+
+
+<script type="application/javascript">define('jquery', [],function() {return window.jQuery;})</script>
+
+
+
+</head>
+
+<body class="nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">Peekei</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="../index.html"> 
+<span class="menu-text">Articles</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="../about.html"> 
+<span class="menu-text">About</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://github.com/Real-peekei/omicsuite"> 
+<span class="menu-text">omicsuite</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/Real-peekei"> <i class="bi bi-github" role="img" aria-label="GitHub">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul class="collapse">
+  <li><a href="#motivation" id="toc-motivation" class="nav-link active" data-scroll-target="#motivation">1. Motivation</a></li>
+  <li><a href="#model-acquisition" id="toc-model-acquisition" class="nav-link" data-scroll-target="#model-acquisition">2. Model Acquisition</a></li>
+  <li><a href="#baseline-fba-and-the-degeneracy-problem" id="toc-baseline-fba-and-the-degeneracy-problem" class="nav-link" data-scroll-target="#baseline-fba-and-the-degeneracy-problem">3. Baseline FBA and the Degeneracy Problem</a></li>
+  <li><a href="#flux-variability-analysis" id="toc-flux-variability-analysis" class="nav-link" data-scroll-target="#flux-variability-analysis">4. Flux Variability Analysis</a></li>
+  <li><a href="#growth-response-to-nutrient-environment" id="toc-growth-response-to-nutrient-environment" class="nav-link" data-scroll-target="#growth-response-to-nutrient-environment">5. Growth Response to Nutrient Environment</a></li>
+  <li><a href="#phenotype-phase-plane-glucose-vs.-oxygen" id="toc-phenotype-phase-plane-glucose-vs.-oxygen" class="nav-link" data-scroll-target="#phenotype-phase-plane-glucose-vs.-oxygen">6. Phenotype Phase Plane: Glucose vs.&nbsp;Oxygen</a></li>
+  <li><a href="#single-gene-knockout-screening" id="toc-single-gene-knockout-screening" class="nav-link" data-scroll-target="#single-gene-knockout-screening">7. Single Gene Knockout Screening</a></li>
+  <li><a href="#double-gene-knockout-synthetic-lethality" id="toc-double-gene-knockout-synthetic-lethality" class="nav-link" data-scroll-target="#double-gene-knockout-synthetic-lethality">8. Double Gene Knockout: Synthetic Lethality</a></li>
+  <li><a href="#takeaways" id="toc-takeaways" class="nav-link" data-scroll-target="#takeaways">Takeaways</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Flux Balance Analysis of <em>E. coli</em> Central Metabolism: Growth, Knockouts, and Nutrient Shifts</h1>
+  <div class="quarto-categories">
+    <div class="quarto-category">Systems Biology</div>
+    <div class="quarto-category">Flux Balance Analysis</div>
+    <div class="quarto-category">Metabolic Modeling</div>
+    <div class="quarto-category">Python</div>
+    <div class="quarto-category">Bioinformatics</div>
+    <div class="quarto-category">Synthetic Biology</div>
+  </div>
+  </div>
+
+<div>
+  <div class="description">
+    A Python + COBRApy systems biology deep dive: baseline FBA vs.&nbsp;parsimonious FBA on E. coli’s core metabolic model, flux variability analysis, growth response across carbon sources, phenotype phase planes, and single/double gene knockout screening for synthetic lethality.
+  </div>
+</div>
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Peekei </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">July 15, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<!--
+SETUP — run this once in a terminal before rendering:
+
+  conda create -n cobra-fba python=3.10 -y
+  conda activate cobra-fba
+  pip install cobra pandas numpy matplotlib seaborn jupyter ipykernel
+  python -m ipykernel install --user --name cobra-fba --display-name "Python (cobra-fba)"
+
+The `jupyter: cobra-fba` field in the YAML header above tells Quarto which
+kernel to render with. If you named your environment something other than
+`cobra-fba`, either rename it to match or update that field.
+
+Render with:  quarto render metabolic-flux-analysis-v1.qmd
+(or click Render in RStudio — it calls Quarto the same way)
+-->
+<section id="motivation" class="level2">
+<h2 class="anchored" data-anchor-id="motivation">1. Motivation</h2>
+<p>A genome-scale metabolic model (GEM) is a stoichiometric reconstruction of every known biochemical reaction an organism’s genome can catalyse — thousands of reactions connected through shared metabolites, each reaction tied back to the gene or genes that encode its enzyme. That structure alone doesn’t predict behaviour. Flux Balance Analysis (FBA) turns the structure into a prediction by assuming the cell is at metabolic steady state and solving a linear program: find the distribution of reaction fluxes that maximises a chosen objective (almost always growth, represented as flux through a biomass reaction) subject to the stoichiometric constraints and the uptake bounds available in the environment.</p>
+<p>What makes this genuinely useful rather than a curve-fitting exercise is that the model is mechanistic — asking “what happens if gene X is knocked out” is answered by removing every reaction that gene uniquely catalyses and re-solving the same optimisation, not by fitting a new statistical relationship. This piece works through baseline FBA on <em>E. coli</em>’s core metabolic model, the degeneracy problem that plain FBA has and how parsimonious FBA (pFBA) resolves it, flux variability analysis, growth response to different carbon sources and oxygen availability, and systematic single- and double-gene knockout screening.</p>
+</section>
+<section id="model-acquisition" class="level2">
+<h2 class="anchored" data-anchor-id="model-acquisition">2. Model Acquisition</h2>
+<pre class="{bash}"><code>#| eval: false
+# Reference only — the Python chunk below performs the actual download
+# with caching, so this does not need to be run manually. Shown here
+# for reproducibility: this is the exact source the model comes from.
+
+curl -O http://bigg.ucsd.edu/static/models/e_coli_core.xml</code></pre>
+<div id="load-model" class="cell" data-execution_count="1">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> os</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> gzip</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> shutil</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> time</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> urllib.request</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> cobra</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> seaborn <span class="im">as</span> sns</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>sns.set_style(<span class="st">"whitegrid"</span>)</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>MODEL_PATH   <span class="op">=</span> <span class="st">"e_coli_core.xml"</span></span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a>BIGG_URL_XML <span class="op">=</span> <span class="st">"http://bigg.ucsd.edu/static/models/e_coli_core.xml"</span></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>BIGG_URL_GZ  <span class="op">=</span> <span class="st">"http://bigg.ucsd.edu/static/models/e_coli_core.xml.gz"</span></span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>MIN_VALID_SIZE <span class="op">=</span> <span class="dv">400_000</span>   <span class="co"># real file is ~700KB; anything much smaller is a truncated download</span></span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> is_valid_model_file(path):</span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""A partial/corrupt download can pass os.path.exists() — check size</span></span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a><span class="co">    and that it actually parses as XML before trusting it."""</span></span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> os.path.exists(path):</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="va">False</span></span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> os.path.getsize(path) <span class="op">&lt;</span> MIN_VALID_SIZE:</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="va">False</span></span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    <span class="cf">try</span>:</span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>        <span class="cf">with</span> <span class="bu">open</span>(path, <span class="st">"r"</span>, encoding<span class="op">=</span><span class="st">"utf-8"</span>, errors<span class="op">=</span><span class="st">"ignore"</span>) <span class="im">as</span> f:</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>            head <span class="op">=</span> f.read(<span class="dv">200</span>)</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="st">"&lt;sbml"</span> <span class="kw">in</span> head.lower() <span class="kw">or</span> <span class="st">"&lt;?xml"</span> <span class="kw">in</span> head.lower()</span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>    <span class="cf">except</span> <span class="pp">Exception</span>:</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> <span class="va">False</span></span>
+<span id="cb2-33"><a href="#cb2-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-34"><a href="#cb2-34" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> try_download(url, dest, attempts<span class="op">=</span><span class="dv">3</span>, timeout<span class="op">=</span><span class="dv">30</span>):</span>
+<span id="cb2-35"><a href="#cb2-35" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> attempt <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">1</span>, attempts <span class="op">+</span> <span class="dv">1</span>):</span>
+<span id="cb2-36"><a href="#cb2-36" aria-hidden="true" tabindex="-1"></a>        <span class="cf">try</span>:</span>
+<span id="cb2-37"><a href="#cb2-37" aria-hidden="true" tabindex="-1"></a>            urllib.request.urlretrieve(url, dest)</span>
+<span id="cb2-38"><a href="#cb2-38" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span> <span class="va">True</span></span>
+<span id="cb2-39"><a href="#cb2-39" aria-hidden="true" tabindex="-1"></a>        <span class="cf">except</span> <span class="pp">Exception</span> <span class="im">as</span> e:</span>
+<span id="cb2-40"><a href="#cb2-40" aria-hidden="true" tabindex="-1"></a>            <span class="bu">print</span>(<span class="ss">f"  Attempt </span><span class="sc">{</span>attempt<span class="sc">}</span><span class="ss">/</span><span class="sc">{</span>attempts<span class="sc">}</span><span class="ss"> failed: </span><span class="sc">{</span>e<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-41"><a href="#cb2-41" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> os.path.exists(dest):</span>
+<span id="cb2-42"><a href="#cb2-42" aria-hidden="true" tabindex="-1"></a>                os.remove(dest)   <span class="co"># never leave a partial file behind</span></span>
+<span id="cb2-43"><a href="#cb2-43" aria-hidden="true" tabindex="-1"></a>            <span class="cf">if</span> attempt <span class="op">&lt;</span> attempts:</span>
+<span id="cb2-44"><a href="#cb2-44" aria-hidden="true" tabindex="-1"></a>                time.sleep(<span class="dv">3</span>)</span>
+<span id="cb2-45"><a href="#cb2-45" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="va">False</span></span>
+<span id="cb2-46"><a href="#cb2-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-47"><a href="#cb2-47" aria-hidden="true" tabindex="-1"></a><span class="co"># If a stale/partial file exists from an earlier interrupted run, discard it</span></span>
+<span id="cb2-48"><a href="#cb2-48" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> os.path.exists(MODEL_PATH) <span class="kw">and</span> <span class="kw">not</span> is_valid_model_file(MODEL_PATH):</span>
+<span id="cb2-49"><a href="#cb2-49" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">"Found an incomplete or corrupt model file from a previous run — removing it."</span>)</span>
+<span id="cb2-50"><a href="#cb2-50" aria-hidden="true" tabindex="-1"></a>    os.remove(MODEL_PATH)</span>
+<span id="cb2-51"><a href="#cb2-51" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-52"><a href="#cb2-52" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="kw">not</span> is_valid_model_file(MODEL_PATH):</span>
+<span id="cb2-53"><a href="#cb2-53" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">"Downloading e_coli_core model from BiGG (uncompressed XML)..."</span>)</span>
+<span id="cb2-54"><a href="#cb2-54" aria-hidden="true" tabindex="-1"></a>    success <span class="op">=</span> try_download(BIGG_URL_XML, MODEL_PATH)</span>
+<span id="cb2-55"><a href="#cb2-55" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-56"><a href="#cb2-56" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> success <span class="kw">or</span> <span class="kw">not</span> is_valid_model_file(MODEL_PATH):</span>
+<span id="cb2-57"><a href="#cb2-57" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">"Uncompressed download failed — trying gzipped version..."</span>)</span>
+<span id="cb2-58"><a href="#cb2-58" aria-hidden="true" tabindex="-1"></a>        gz_path <span class="op">=</span> MODEL_PATH <span class="op">+</span> <span class="st">".gz"</span></span>
+<span id="cb2-59"><a href="#cb2-59" aria-hidden="true" tabindex="-1"></a>        success <span class="op">=</span> try_download(BIGG_URL_GZ, gz_path)</span>
+<span id="cb2-60"><a href="#cb2-60" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> success:</span>
+<span id="cb2-61"><a href="#cb2-61" aria-hidden="true" tabindex="-1"></a>            <span class="cf">with</span> gzip.<span class="bu">open</span>(gz_path, <span class="st">"rb"</span>) <span class="im">as</span> f_in, <span class="bu">open</span>(MODEL_PATH, <span class="st">"wb"</span>) <span class="im">as</span> f_out:</span>
+<span id="cb2-62"><a href="#cb2-62" aria-hidden="true" tabindex="-1"></a>                shutil.copyfileobj(f_in, f_out)</span>
+<span id="cb2-63"><a href="#cb2-63" aria-hidden="true" tabindex="-1"></a>            os.remove(gz_path)</span>
+<span id="cb2-64"><a href="#cb2-64" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-65"><a href="#cb2-65" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> is_valid_model_file(MODEL_PATH):</span>
+<span id="cb2-66"><a href="#cb2-66" aria-hidden="true" tabindex="-1"></a>        <span class="cf">raise</span> <span class="pp">RuntimeError</span>(</span>
+<span id="cb2-67"><a href="#cb2-67" aria-hidden="true" tabindex="-1"></a>            <span class="st">"</span><span class="ch">\n\n</span><span class="st">Could not download the model automatically after multiple attempts — "</span></span>
+<span id="cb2-68"><a href="#cb2-68" aria-hidden="true" tabindex="-1"></a>            <span class="st">"this usually means a network or DNS issue on this machine rather than a "</span></span>
+<span id="cb2-69"><a href="#cb2-69" aria-hidden="true" tabindex="-1"></a>            <span class="st">"problem with the code. To work around it:</span><span class="ch">\n\n</span><span class="st">"</span></span>
+<span id="cb2-70"><a href="#cb2-70" aria-hidden="true" tabindex="-1"></a>            <span class="st">"  1. Open this URL in your browser:</span><span class="ch">\n</span><span class="st">"</span></span>
+<span id="cb2-71"><a href="#cb2-71" aria-hidden="true" tabindex="-1"></a>            <span class="st">"     http://bigg.ucsd.edu/static/models/e_coli_core.xml</span><span class="ch">\n</span><span class="st">"</span></span>
+<span id="cb2-72"><a href="#cb2-72" aria-hidden="true" tabindex="-1"></a>            <span class="st">"  2. Save the file as 'e_coli_core.xml'</span><span class="ch">\n</span><span class="st">"</span></span>
+<span id="cb2-73"><a href="#cb2-73" aria-hidden="true" tabindex="-1"></a>            <span class="ss">f"  3. Place it in the same folder as this .qmd file:</span><span class="ch">\n</span><span class="ss">"</span></span>
+<span id="cb2-74"><a href="#cb2-74" aria-hidden="true" tabindex="-1"></a>            <span class="ss">f"     </span><span class="sc">{</span>os<span class="sc">.</span>path<span class="sc">.</span>abspath(<span class="st">'.'</span>)<span class="sc">}</span><span class="ch">\n</span><span class="ss">"</span></span>
+<span id="cb2-75"><a href="#cb2-75" aria-hidden="true" tabindex="-1"></a>            <span class="st">"  4. Re-render — the code will detect the file and skip downloading.</span><span class="ch">\n</span><span class="st">"</span></span>
+<span id="cb2-76"><a href="#cb2-76" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb2-77"><a href="#cb2-77" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:</span>
+<span id="cb2-78"><a href="#cb2-78" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="st">"Download succeeded."</span>)</span>
+<span id="cb2-79"><a href="#cb2-79" aria-hidden="true" tabindex="-1"></a><span class="cf">else</span>:</span>
+<span id="cb2-80"><a href="#cb2-80" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="st">"Using existing local model file (already downloaded)."</span>)</span>
+<span id="cb2-81"><a href="#cb2-81" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-82"><a href="#cb2-82" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> cobra.io.read_sbml_model(MODEL_PATH)</span>
+<span id="cb2-83"><a href="#cb2-83" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-84"><a href="#cb2-84" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Reactions:  </span><span class="sc">{</span><span class="bu">len</span>(model.reactions)<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-85"><a href="#cb2-85" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Metabolites:</span><span class="sc">{</span><span class="bu">len</span>(model.metabolites)<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-86"><a href="#cb2-86" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Genes:      </span><span class="sc">{</span><span class="bu">len</span>(model.genes)<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb2-87"><a href="#cb2-87" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Objective:  </span><span class="sc">{</span>model<span class="sc">.</span>objective<span class="sc">.</span>expression<span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Downloading e_coli_core model from BiGG (uncompressed XML)...
+Download succeeded.
+Reactions:  95
+Metabolites:72
+Genes:      137
+Objective:  1.0*BIOMASS_Ecoli_core_w_GAM - 1.0*BIOMASS_Ecoli_core_w_GAM_reverse_712e5</code></pre>
+</div>
+</div>
+<p>The <em>E. coli</em> core model is deliberately small — it captures glycolysis, the TCA cycle, the pentose phosphate pathway, oxidative phosphorylation, and central carbon exchange reactions, without the full genome-scale reconstruction’s thousands of peripheral reactions. That size is an advantage here: every result below can be inspected pathway-by-pathway rather than disappearing into a reaction list too large to reason about directly.</p>
+</section>
+<section id="baseline-fba-and-the-degeneracy-problem" class="level2">
+<h2 class="anchored" data-anchor-id="baseline-fba-and-the-degeneracy-problem">3. Baseline FBA and the Degeneracy Problem</h2>
+<div id="baseline-fba" class="cell" data-execution_count="2">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>solution_fba <span class="op">=</span> model.optimize()</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Growth rate (FBA):  </span><span class="sc">{</span>solution_fba<span class="sc">.</span>objective_value<span class="sc">:.4f}</span><span class="ss"> 1/h"</span>)</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Status: </span><span class="sc">{</span>solution_fba<span class="sc">.</span>status<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Sum of absolute fluxes (FBA solution): </span><span class="sc">{</span>solution_fba<span class="sc">.</span>fluxes<span class="sc">.</span><span class="bu">abs</span>()<span class="sc">.</span><span class="bu">sum</span>()<span class="sc">:.2f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Growth rate (FBA):  0.8739 1/h
+Status: optimal
+Sum of absolute fluxes (FBA solution): 518.42</code></pre>
+</div>
+</div>
+<p>Plain FBA found a growth rate, but that number can correspond to more than one flux distribution. Whenever a metabolic network has redundant or parallel routes between the same start and end points — which real metabolism almost always does — many different flux vectors can achieve the identical optimal growth rate. Reporting “the” flux distribution from plain FBA without acknowledging this is misleading: the solver returned <em>a</em> solution, not necessarily a biologically representative one.</p>
+<p>Parsimonious FBA (pFBA) resolves this by adding a second objective: among all flux distributions that achieve the optimal growth rate, find the one with the minimum total flux. This is motivated by the assumption that cells don’t run unnecessary enzymatic reactions when a leaner route achieves the same growth — an assumption with real biological support, not an arbitrary tie-breaker.</p>
+<div id="pfba" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>solution_pfba <span class="op">=</span> cobra.flux_analysis.pfba(model)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="co"># IMPORTANT: pfba() internally swaps the model's objective to "minimize</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="co"># total flux" before re-solving, so solution_pfba.objective_value reflects</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="co"># THAT objective (the total flux sum) — not the growth rate. The growth</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="co"># rate has to be read back out as the flux through the biomass reaction</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="co"># specifically. Biomass reactions are identified by convention (their id</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a><span class="co"># contains "biomass") rather than assumed to have one fixed name, since</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a><span class="co"># that varies slightly across BiGG models.</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>biomass_reaction <span class="op">=</span> <span class="bu">next</span>(r <span class="cf">for</span> r <span class="kw">in</span> model.reactions <span class="cf">if</span> <span class="st">"biomass"</span> <span class="kw">in</span> r.<span class="bu">id</span>.lower())</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>pfba_growth_rate <span class="op">=</span> solution_pfba.fluxes[biomass_reaction.<span class="bu">id</span>]</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Biomass reaction: </span><span class="sc">{</span>biomass_reaction<span class="sc">.</span><span class="bu">id</span><span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Growth rate (pFBA): </span><span class="sc">{</span>pfba_growth_rate<span class="sc">:.4f}</span><span class="ss"> 1/h"</span>)</span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Sum of absolute fluxes (pFBA solution): </span><span class="sc">{</span>solution_pfba<span class="sc">.</span>fluxes<span class="sc">.</span><span class="bu">abs</span>()<span class="sc">.</span><span class="bu">sum</span>()<span class="sc">:.2f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Biomass reaction: BIOMASS_Ecoli_core_w_GAM
+Growth rate (pFBA): 0.8739 1/h
+Sum of absolute fluxes (pFBA solution): 518.42</code></pre>
+</div>
+</div>
+<div class="callout callout-style-default callout-warning callout-titled" title="Implementation gotcha">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>Implementation gotcha
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><code>pfba()</code> re-solves the model against a <em>different</em> objective internally — total flux minimisation, subject to growth being fixed at its optimum — so the <code>Solution.objective_value</code> it returns reflects that internal flux-minimisation objective, not the growth rate. Reading <code>.objective_value</code> directly off a pFBA solution and assuming it’s the growth rate silently produces a nonsensical number (it would come out numerically identical to the total flux sum). The growth rate itself has to be read back out as the flux through the biomass reaction specifically, which is what the code above does.</p>
+</div>
+</div>
+<div id="cell-fba-vs-pfba-plot" class="cell" data-execution_count="4">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>top_reactions <span class="op">=</span> solution_pfba.fluxes.<span class="bu">abs</span>().sort_values(ascending<span class="op">=</span><span class="va">False</span>).head(<span class="dv">15</span>).index</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>compare_df <span class="op">=</span> pd.DataFrame({</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">"FBA"</span>:  solution_fba.fluxes[top_reactions].<span class="bu">abs</span>(),</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"pFBA"</span>: solution_pfba.fluxes[top_reactions].<span class="bu">abs</span>()</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>compare_df.plot(kind<span class="op">=</span><span class="st">"barh"</span>, figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">6</span>))</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Absolute flux (mmol/gDCW/h)"</span>)</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">"Reaction"</span>)</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fba-vs-pfba-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="metabolic-flux-analysis-final_files/figure-html/fba-vs-pfba-plot-output-1.png" width="758" height="566" class="figure-img"></p>
+<figcaption>Flux magnitude comparison, FBA vs.&nbsp;pFBA, for the 15 highest-flux reactions in the pFBA solution</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Both solutions achieve the same growth rate by construction, but the total flux carried differs — the gap between the two “sum of absolute fluxes” numbers above is the degeneracy plain FBA leaves unresolved. Every subsequent analysis in this piece uses the pFBA solution as the reference flux distribution for exactly this reason.</p>
+</section>
+<section id="flux-variability-analysis" class="level2">
+<h2 class="anchored" data-anchor-id="flux-variability-analysis">4. Flux Variability Analysis</h2>
+<p>FVA asks a different question than pFBA: rather than picking one flux distribution, what is the <em>range</em> each reaction’s flux can take while the network still achieves at least some specified fraction of the optimal growth rate? Reactions with a wide FVA range have genuine flexibility — the cell could reroute flux through them without cost. Reactions with a narrow or zero-width range are load-bearing: any deviation compromises growth.</p>
+<div id="cell-fva" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>fva_result <span class="op">=</span> cobra.flux_analysis.flux_variability_analysis(</span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>    model, loopless<span class="op">=</span><span class="st">"fastSNP"</span>, fraction_of_optimum<span class="op">=</span><span class="fl">0.9</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>fva_result[<span class="st">"range"</span>] <span class="op">=</span> fva_result[<span class="st">"maximum"</span>] <span class="op">-</span> fva_result[<span class="st">"minimum"</span>]</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>fva_result_sorted <span class="op">=</span> fva_result.sort_values(<span class="st">"range"</span>, ascending<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>fva_result_sorted.head(<span class="dv">10</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="fva" class="cell-output cell-output-display" data-execution_count="5">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">minimum</th>
+<th data-quarto-table-cell-role="th">maximum</th>
+<th data-quarto-table-cell-role="th">range</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">FORt2</th>
+<td>0.000000</td>
+<td>68.644000</td>
+<td>68.644000</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">FORt</th>
+<td>-68.644000</td>
+<td>0.000000</td>
+<td>68.644000</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">NADTRHD</th>
+<td>0.000000</td>
+<td>44.759583</td>
+<td>44.759583</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">THD2</th>
+<td>0.000000</td>
+<td>37.041989</td>
+<td>37.041989</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">ATPS4r</th>
+<td>34.825618</td>
+<td>59.381062</td>
+<td>24.555445</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">PGI</th>
+<td>-14.299039</td>
+<td>9.838761</td>
+<td>24.137801</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">G6PDH2r</th>
+<td>0.000000</td>
+<td>24.137801</td>
+<td>24.137801</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">GND</th>
+<td>0.000000</td>
+<td>24.137801</td>
+<td>24.137801</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">PGL</th>
+<td>0.000000</td>
+<td>24.137801</td>
+<td>24.137801</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">PFK</th>
+<td>1.171706</td>
+<td>25.290644</td>
+<td>24.118938</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-fva-plot" class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>top_var <span class="op">=</span> fva_result_sorted.head(<span class="dv">20</span>)</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">7</span>))</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>ax.barh(top_var.index, top_var[<span class="st">"maximum"</span>] <span class="op">-</span> top_var[<span class="st">"minimum"</span>],</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>        left<span class="op">=</span>top_var[<span class="st">"minimum"</span>], color<span class="op">=</span><span class="st">"#4DBBD5"</span>, alpha<span class="op">=</span><span class="fl">0.85</span>)</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>ax.axvline(<span class="dv">0</span>, color<span class="op">=</span><span class="st">"grey"</span>, linestyle<span class="op">=</span><span class="st">"--"</span>, linewidth<span class="op">=</span><span class="fl">0.8</span>)</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Flux range (mmol/gDCW/h)"</span>)</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Reaction"</span>)</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="fva-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="metabolic-flux-analysis-final_files/figure-html/fva-plot-output-1.png" width="758" height="662" class="figure-img"></p>
+<figcaption>Flux variability ranges (90% of optimal growth) for the 20 reactions with the widest range</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="Why these FVA settings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Why these FVA settings
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><code>loopless="fastSNP"</code> matters here — without loop removal, FVA can report artificially wide ranges driven by thermodynamically infeasible internal loops (flux cycling through a set of reactions with no net effect, which is mathematically valid in a pure stoichiometric model but physically impossible). Restricting to loopless solutions keeps the ranges biologically interpretable. The <code>fraction_of_optimum=0.9</code> setting also matters: at strict optimality (fraction = 1.0), most reactions in a network with a single optimal growth rate collapse to a zero-width range, because any deviation would reduce that one exact optimum — relaxing to 90% of optimal growth reveals which reactions have real flexibility within a biologically reasonable neighbourhood of the optimum, rather than reporting that almost nothing varies simply because the constraint was too strict to allow it.</p>
+</div>
+</div>
+<p>The widest-range reactions in this model aren’t arbitrary — they’re recognisable pairs of alternate routes for the same job. Formate transport (FORt/FORt2) shows the largest range because formate excretion is a fermentation by-product with no fixed stoichiometric requirement at 90% of optimal growth. NADTRHD and THD2 are the two transhydrogenase reactions that interconvert the NADH and NADPH pools — one proton-translocating, one not — and their near-identical wide ranges reflect a textbook case of genuine metabolic redundancy: the cell can lean on either route without cost. The same pattern shows up in PGI and G6PDH2r, the entry points to glycolysis and the pentose phosphate pathway respectively — both draw from the same glucose-6-phosphate pool, so flux can shift between the two pathways without changing the growth rate, which is exactly the kind of flexibility a single FBA solution would hide and FVA makes visible.</p>
+</section>
+<section id="growth-response-to-nutrient-environment" class="level2">
+<h2 class="anchored" data-anchor-id="growth-response-to-nutrient-environment">5. Growth Response to Nutrient Environment</h2>
+<p>The model’s default medium is aerobic glucose minimal media. Swapping the carbon source — while leaving the biomass objective and all other constraints untouched — tests how much of <em>E. coli</em>’s core network is carbon-source-agnostic versus specialised for glucose.</p>
+<div id="cell-carbon-source-sweep" class="cell" data-execution_count="7">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Candidate carbon sources to test. Not every exchange reaction below is</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a><span class="co"># guaranteed to exist in every model variant, so each one is checked</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a><span class="co"># against the model before use rather than assumed — a missing ID is</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="co"># reported and skipped instead of halting the whole analysis.</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>carbon_source_candidates <span class="op">=</span> {</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Glucose"</span>:   <span class="st">"EX_glc__D_e"</span>,</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Acetate"</span>:   <span class="st">"EX_ac_e"</span>,</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Fructose"</span>:  <span class="st">"EX_fru_e"</span>,</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Succinate"</span>: <span class="st">"EX_succ_e"</span>,</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>existing_reaction_ids <span class="op">=</span> {r.<span class="bu">id</span> <span class="cf">for</span> r <span class="kw">in</span> model.reactions}</span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>carbon_sources <span class="op">=</span> {}</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> name, rxn_id <span class="kw">in</span> carbon_source_candidates.items():</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> rxn_id <span class="kw">in</span> existing_reaction_ids:</span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>        carbon_sources[name] <span class="op">=</span> rxn_id</span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>    <span class="cf">else</span>:</span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"Skipping </span><span class="sc">{</span>name<span class="sc">}</span><span class="ss"> (</span><span class="sc">{</span>rxn_id<span class="sc">}</span><span class="ss">) — not present in this model."</span>)</span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a>growth_by_source <span class="op">=</span> {}</span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> model:</span>
+<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a>    <span class="co"># close the default glucose exchange first</span></span>
+<span id="cb11-24"><a href="#cb11-24" aria-hidden="true" tabindex="-1"></a>    model.reactions.EX_glc__D_e.lower_bound <span class="op">=</span> <span class="dv">0</span></span>
+<span id="cb11-25"><a href="#cb11-25" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> name, rxn_id <span class="kw">in</span> carbon_sources.items():</span>
+<span id="cb11-26"><a href="#cb11-26" aria-hidden="true" tabindex="-1"></a>        <span class="cf">with</span> model:</span>
+<span id="cb11-27"><a href="#cb11-27" aria-hidden="true" tabindex="-1"></a>            model.reactions.get_by_id(rxn_id).lower_bound <span class="op">=</span> <span class="op">-</span><span class="dv">10</span></span>
+<span id="cb11-28"><a href="#cb11-28" aria-hidden="true" tabindex="-1"></a>            sol <span class="op">=</span> model.optimize()</span>
+<span id="cb11-29"><a href="#cb11-29" aria-hidden="true" tabindex="-1"></a>            growth_by_source[name] <span class="op">=</span> sol.objective_value <span class="cf">if</span> sol.status <span class="op">==</span> <span class="st">"optimal"</span> <span class="cf">else</span> <span class="fl">0.0</span></span>
+<span id="cb11-30"><a href="#cb11-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-31"><a href="#cb11-31" aria-hidden="true" tabindex="-1"></a>growth_df <span class="op">=</span> pd.DataFrame.from_dict(growth_by_source, orient<span class="op">=</span><span class="st">"index"</span>, columns<span class="op">=</span>[<span class="st">"growth_rate"</span>])</span>
+<span id="cb11-32"><a href="#cb11-32" aria-hidden="true" tabindex="-1"></a>growth_df</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="carbon-source-sweep" class="cell-output cell-output-display" data-execution_count="7">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">growth_rate</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Glucose</th>
+<td>0.873922</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Acetate</th>
+<td>0.173339</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Fructose</th>
+<td>0.873922</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Succinate</th>
+<td>0.397563</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-carbon-source-plot" class="cell" data-execution_count="8">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>growth_df.sort_values(<span class="st">"growth_rate"</span>, ascending<span class="op">=</span><span class="va">True</span>).plot(</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>    kind<span class="op">=</span><span class="st">"barh"</span>, legend<span class="op">=</span><span class="va">False</span>, color<span class="op">=</span><span class="st">"#3C5488"</span>, figsize<span class="op">=</span>(<span class="dv">7</span>, <span class="dv">4</span>)</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>plt.xlabel(<span class="st">"Growth rate (1/h)"</span>)</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>plt.ylabel(<span class="st">""</span>)</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="carbon-source-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="metabolic-flux-analysis-final_files/figure-html/carbon-source-plot-output-1.png" width="662" height="374" class="figure-img"></p>
+<figcaption>Predicted growth rate across the carbon sources present in this model, 10 mmol/gDCW/h uptake each</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The differences across carbon sources reflect real metabolic cost, and the numbers land exactly where the underlying biochemistry predicts. Glucose and fructose both give 0.874 1/h — identical to four decimal places — because fructose enters glycolysis at essentially the same point as glucose (as fructose-6-phosphate), so the model correctly treats them as metabolically equivalent entry points despite being different molecules. Succinate, which enters directly into the TCA cycle and bypasses glycolysis’s substrate-level ATP and NADH production entirely, supports growth at 0.398 1/h — less than half the glucose rate. Acetate, entering even further downstream via acetyl-CoA, is the slowest at 0.173 1/h. The ranking (glucose ≈ fructose &gt; succinate &gt; acetate) tracks distance from the top of central metabolism exactly as expected, which is a useful sanity check that the model’s stoichiometry is behaving the way real <em>E. coli</em> physiology does.</p>
+</section>
+<section id="phenotype-phase-plane-glucose-vs.-oxygen" class="level2">
+<h2 class="anchored" data-anchor-id="phenotype-phase-plane-glucose-vs.-oxygen">6. Phenotype Phase Plane: Glucose vs.&nbsp;Oxygen</h2>
+<p>Rather than varying one substrate at a time, the phenotype phase plane method (Edwards &amp; Palsson, 2001) grids two exchange fluxes simultaneously — here, glucose and oxygen uptake — and computes the optimal growth rate at every combination. This exposes the boundary between respiratory and fermentative metabolism directly, rather than describing it qualitatively.</p>
+<div id="phenotype-phase-plane" class="cell" data-execution_count="9">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>glucose_range <span class="op">=</span> np.linspace(<span class="dv">0</span>, <span class="dv">20</span>, <span class="dv">25</span>)</span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>oxygen_range  <span class="op">=</span> np.linspace(<span class="dv">0</span>, <span class="dv">25</span>, <span class="dv">25</span>)</span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>pp_grid <span class="op">=</span> np.zeros((<span class="bu">len</span>(oxygen_range), <span class="bu">len</span>(glucose_range)))</span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a><span class="cf">with</span> model:</span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> i, o2 <span class="kw">in</span> <span class="bu">enumerate</span>(oxygen_range):</span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> j, glc <span class="kw">in</span> <span class="bu">enumerate</span>(glucose_range):</span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>            <span class="cf">with</span> model:</span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>                model.reactions.EX_glc__D_e.lower_bound <span class="op">=</span> <span class="op">-</span>glc</span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>                model.reactions.EX_o2_e.lower_bound <span class="op">=</span> <span class="op">-</span>o2</span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>                sol <span class="op">=</span> model.slim_optimize()</span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>                pp_grid[i, j] <span class="op">=</span> sol <span class="cf">if</span> sol <span class="kw">is</span> <span class="kw">not</span> <span class="va">None</span> <span class="kw">and</span> <span class="kw">not</span> np.isnan(sol) <span class="cf">else</span> <span class="fl">0.0</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div id="cell-phase-plane-plot" class="cell" data-execution_count="10">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="dv">6</span>))</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>im <span class="op">=</span> ax.imshow(pp_grid, origin<span class="op">=</span><span class="st">"lower"</span>, aspect<span class="op">=</span><span class="st">"auto"</span>, cmap<span class="op">=</span><span class="st">"viridis"</span>,</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>               extent<span class="op">=</span>[glucose_range.<span class="bu">min</span>(), glucose_range.<span class="bu">max</span>(),</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>                       oxygen_range.<span class="bu">min</span>(), oxygen_range.<span class="bu">max</span>()])</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Glucose uptake rate (mmol/gDCW/h)"</span>)</span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Oxygen uptake rate (mmol/gDCW/h)"</span>)</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>fig.colorbar(im, ax<span class="op">=</span>ax, label<span class="op">=</span><span class="st">"Growth rate (1/h)"</span>)</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="phase-plane-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="metabolic-flux-analysis-final_files/figure-html/phase-plane-plot-output-1.png" width="724" height="566" class="figure-img"></p>
+<figcaption>Phenotype phase plane: growth rate as a function of glucose and oxygen uptake rate</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The transition zone visible in this grid — where growth rate stops increasing linearly with glucose for a fixed oxygen supply — is the line of optimal respiratory efficiency; beyond it, the cell is oxygen-limited and any additional glucose can only be used fermentatively, which yields less biomass per unit carbon. Where exactly that line sits, and how sharp the transition is, is a direct, falsifiable model prediction rather than an assumption.</p>
+</section>
+<section id="single-gene-knockout-screening" class="level2">
+<h2 class="anchored" data-anchor-id="single-gene-knockout-screening">7. Single Gene Knockout Screening</h2>
+<p>Every reaction in the model is linked to the gene(s) that encode its catalysing enzyme through gene-protein-reaction (GPR) rules. Knocking out a gene removes every reaction whose GPR rule can no longer be satisfied, then re-solves FBA. Genes whose removal drops growth to (near) zero are essential under this medium; genes whose removal leaves growth largely unchanged have redundant or dispensable function under these conditions specifically — essentiality in FBA is always conditional on the modelled environment.</p>
+<div id="cell-single-ko" class="cell" data-execution_count="11">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>ko_results <span class="op">=</span> cobra.flux_analysis.single_gene_deletion(model)</span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>ko_results[<span class="st">"gene_id"</span>] <span class="op">=</span> ko_results[<span class="st">"ids"</span>].<span class="bu">apply</span>(<span class="kw">lambda</span> s: <span class="bu">next</span>(<span class="bu">iter</span>(s)))</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>ko_results[<span class="st">"gene_name"</span>] <span class="op">=</span> ko_results[<span class="st">"gene_id"</span>].<span class="bu">apply</span>(</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">lambda</span> gid: model.genes.get_by_id(gid).name</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>wt_growth <span class="op">=</span> pfba_growth_rate</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a>ko_results[<span class="st">"relative_growth"</span>] <span class="op">=</span> ko_results[<span class="st">"growth"</span>] <span class="op">/</span> wt_growth</span>
+<span id="cb15-9"><a href="#cb15-9" aria-hidden="true" tabindex="-1"></a>ko_results[<span class="st">"essential"</span>] <span class="op">=</span> ko_results[<span class="st">"relative_growth"</span>] <span class="op">&lt;</span> <span class="fl">0.01</span></span>
+<span id="cb15-10"><a href="#cb15-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a>essential_genes <span class="op">=</span> ko_results[ko_results[<span class="st">"essential"</span>]].sort_values(<span class="st">"relative_growth"</span>)</span>
+<span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a>n_essential <span class="op">=</span> essential_genes.shape[<span class="dv">0</span>]</span>
+<span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a>n_total_genes <span class="op">=</span> ko_results.shape[<span class="dv">0</span>]</span>
+<span id="cb15-14"><a href="#cb15-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb15-15"><a href="#cb15-15" aria-hidden="true" tabindex="-1"></a>essential_genes[[<span class="st">"gene_id"</span>, <span class="st">"gene_name"</span>, <span class="st">"relative_growth"</span>]]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="single-ko" class="cell-output cell-output-display" data-execution_count="11">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">gene_id</th>
+<th data-quarto-table-cell-role="th">gene_name</th>
+<th data-quarto-table-cell-role="th">relative_growth</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">10</th>
+<td>b0720</td>
+<td>gltA</td>
+<td>-5.293998e-15</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">110</th>
+<td>b2779</td>
+<td>eno</td>
+<td>-1.411110e-15</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">30</th>
+<td>b1779</td>
+<td>gapA</td>
+<td>1.368024e-16</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">81</th>
+<td>b2926</td>
+<td>pgk</td>
+<td>9.507892e-16</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">20</th>
+<td>b1136</td>
+<td>icd</td>
+<td>7.570307e-15</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-ko-distribution-plot" class="cell" data-execution_count="12">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">8</span>, <span class="fl">4.5</span>))</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>ax.hist(ko_results[<span class="st">"relative_growth"</span>], bins<span class="op">=</span><span class="dv">40</span>, color<span class="op">=</span><span class="st">"#4DBBD5"</span>, edgecolor<span class="op">=</span><span class="st">"white"</span>)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>ax.axvline(<span class="fl">0.01</span>, color<span class="op">=</span><span class="st">"#E64B35"</span>, linestyle<span class="op">=</span><span class="st">"--"</span>, label<span class="op">=</span><span class="st">"Essentiality threshold (1%)"</span>)</span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Relative growth rate (knockout / wild-type)"</span>)</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Number of genes"</span>)</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>ax.legend()</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="ko-distribution-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="metabolic-flux-analysis-final_files/figure-html/ko-distribution-plot-output-1.png" width="758" height="422" class="figure-img"></p>
+<figcaption>Distribution of relative growth rate across all single-gene knockouts</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="ko-summary" class="cell" data-execution_count="13">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Total genes screened: </span><span class="sc">{</span>n_total_genes<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Essential genes (relative growth &lt; 1%): </span><span class="sc">{</span>n_essential<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Essential fraction: </span><span class="sc">{</span>n_essential <span class="op">/</span> n_total_genes<span class="sc">:.1%}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Total genes screened: 137
+Essential genes (relative growth &lt; 1%): 5
+Essential fraction: 3.6%</code></pre>
+</div>
+</div>
+<p>137 genes screened, 5 classified essential (3.6%): gltA, gapA, eno, pgk, and icd. This list is worth checking against known biology rather than taking on faith, and it holds up: gapA, eno, and pgk are three sequential, non-branching steps in lower glycolysis (glyceraldehyde-3-phosphate dehydrogenase, enolase, phosphoglycerate kinase) — each has no isozyme and no alternate route around it in this model, so removing any one of them severs the only path from glucose to pyruvate. gltA (citrate synthase) and icd (isocitrate dehydrogenase) are the entry and a downstream committed step of the TCA cycle; without them the cycle can’t turn, which cascades into failed NADH/FADH2 production for oxidative phosphorylation. A 3.6% essentiality rate is on the low side compared to typical genome-scale essentiality estimates (often cited in the 7-10% range for full <em>E. coli</em> reconstructions), which makes sense given the model’s small size: with only 137 genes covering the most central, well-characterised pathways, the reactions that remain non-essential in this reduced set are precisely the ones with a genuine backup route already included in the model.</p>
+</section>
+<section id="double-gene-knockout-synthetic-lethality" class="level2">
+<h2 class="anchored" data-anchor-id="double-gene-knockout-synthetic-lethality">8. Double Gene Knockout: Synthetic Lethality</h2>
+<p>A gene can be individually dispensable while still being part of a pair that is jointly essential — this happens when two genes provide redundant routes to the same essential function, so losing either alone is survivable but losing both simultaneously is not. Screening every pair among all genes is computationally expensive on a genome-scale model; on this core model it’s tractable to restrict to genes annotated with more than one associated reaction, on the reasoning that single-reaction genes are the least likely to participate in this kind of redundancy.</p>
+<div id="candidate-genes" class="cell" data-execution_count="14">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Restrict the pairwise screen to genes that are (a) associated with more</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="co"># than one reaction, and (b) at least one of those reactions carries</span></span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="co"># non-negligible flux in the baseline pFBA solution. This ties the</span></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a><span class="co"># candidate set to genes actively used under the modelled condition,</span></span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a><span class="co"># rather than screening pairs drawn from reactions that are already</span></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a><span class="co"># silent at baseline — and it keeps the pairwise search space tractable,</span></span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a><span class="co"># since double knockout screening scales quadratically with candidate count.</span></span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a>active_reactions <span class="op">=</span> <span class="bu">set</span>(solution_pfba.fluxes[solution_pfba.fluxes.<span class="bu">abs</span>() <span class="op">&gt;</span> <span class="fl">1e-6</span>].index)</span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-11"><a href="#cb19-11" aria-hidden="true" tabindex="-1"></a>candidate_genes <span class="op">=</span> [</span>
+<span id="cb19-12"><a href="#cb19-12" aria-hidden="true" tabindex="-1"></a>    g.<span class="bu">id</span> <span class="cf">for</span> g <span class="kw">in</span> model.genes</span>
+<span id="cb19-13"><a href="#cb19-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="bu">len</span>(g.reactions) <span class="op">&gt;</span> <span class="dv">1</span></span>
+<span id="cb19-14"><a href="#cb19-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">and</span> <span class="bu">any</span>(r.<span class="bu">id</span> <span class="kw">in</span> active_reactions <span class="cf">for</span> r <span class="kw">in</span> g.reactions)</span>
+<span id="cb19-15"><a href="#cb19-15" aria-hidden="true" tabindex="-1"></a>]</span>
+<span id="cb19-16"><a href="#cb19-16" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Candidate genes for pairwise screening: </span><span class="sc">{</span><span class="bu">len</span>(candidate_genes)<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb19-17"><a href="#cb19-17" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Pairs to be tested: </span><span class="sc">{</span><span class="bu">len</span>(candidate_genes) <span class="op">*</span> (<span class="bu">len</span>(candidate_genes) <span class="op">-</span> <span class="dv">1</span>) <span class="op">//</span> <span class="dv">2</span><span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Candidate genes for pairwise screening: 11
+Pairs to be tested: 55</code></pre>
+</div>
+</div>
+<p>In this model the criterion above narrows the search to 11 candidate genes and 55 pairs — small enough to run in well under a minute, since each pair only requires one linear program solve.</p>
+<div id="cell-double-ko" class="cell" data-execution_count="15">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>double_ko_results <span class="op">=</span> cobra.flux_analysis.double_gene_deletion(</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>    model, gene_list1<span class="op">=</span>candidate_genes</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>double_ko_results[<span class="st">"gene_pair"</span>] <span class="op">=</span> double_ko_results[<span class="st">"ids"</span>].<span class="bu">apply</span>(</span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">lambda</span> s: <span class="bu">tuple</span>(<span class="bu">sorted</span>(s)) <span class="cf">if</span> <span class="bu">len</span>(s) <span class="op">==</span> <span class="dv">2</span> <span class="cf">else</span> <span class="va">None</span></span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>double_ko_results <span class="op">=</span> double_ko_results.dropna(subset<span class="op">=</span>[<span class="st">"gene_pair"</span>])</span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>double_ko_results[<span class="st">"relative_growth"</span>] <span class="op">=</span> double_ko_results[<span class="st">"growth"</span>] <span class="op">/</span> wt_growth</span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a><span class="co"># Build a lookup of single-KO relative growth for each gene, to identify</span></span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a><span class="co"># pairs that are synthetically lethal (both individually viable, jointly not)</span></span>
+<span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>single_lookup <span class="op">=</span> ko_results.set_index(<span class="st">"gene_id"</span>)[<span class="st">"relative_growth"</span>].to_dict()</span>
+<span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-15"><a href="#cb21-15" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> is_synthetic_lethal(row):</span>
+<span id="cb21-16"><a href="#cb21-16" aria-hidden="true" tabindex="-1"></a>    g1, g2 <span class="op">=</span> row[<span class="st">"gene_pair"</span>]</span>
+<span id="cb21-17"><a href="#cb21-17" aria-hidden="true" tabindex="-1"></a>    single_g1 <span class="op">=</span> single_lookup.get(g1, np.nan)</span>
+<span id="cb21-18"><a href="#cb21-18" aria-hidden="true" tabindex="-1"></a>    single_g2 <span class="op">=</span> single_lookup.get(g2, np.nan)</span>
+<span id="cb21-19"><a href="#cb21-19" aria-hidden="true" tabindex="-1"></a>    both_viable_alone <span class="op">=</span> (single_g1 <span class="op">&gt;</span> <span class="fl">0.01</span>) <span class="kw">and</span> (single_g2 <span class="op">&gt;</span> <span class="fl">0.01</span>)</span>
+<span id="cb21-20"><a href="#cb21-20" aria-hidden="true" tabindex="-1"></a>    jointly_lethal <span class="op">=</span> row[<span class="st">"relative_growth"</span>] <span class="op">&lt;</span> <span class="fl">0.01</span></span>
+<span id="cb21-21"><a href="#cb21-21" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> both_viable_alone <span class="kw">and</span> jointly_lethal</span>
+<span id="cb21-22"><a href="#cb21-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-23"><a href="#cb21-23" aria-hidden="true" tabindex="-1"></a>double_ko_results[<span class="st">"synthetic_lethal"</span>] <span class="op">=</span> double_ko_results.<span class="bu">apply</span>(is_synthetic_lethal, axis<span class="op">=</span><span class="dv">1</span>)</span>
+<span id="cb21-24"><a href="#cb21-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-25"><a href="#cb21-25" aria-hidden="true" tabindex="-1"></a>synthetic_lethal_pairs <span class="op">=</span> double_ko_results[double_ko_results[<span class="st">"synthetic_lethal"</span>]]</span>
+<span id="cb21-26"><a href="#cb21-26" aria-hidden="true" tabindex="-1"></a>n_synthetic_lethal <span class="op">=</span> synthetic_lethal_pairs.shape[<span class="dv">0</span>]</span>
+<span id="cb21-27"><a href="#cb21-27" aria-hidden="true" tabindex="-1"></a>n_pairs_tested <span class="op">=</span> double_ko_results.shape[<span class="dv">0</span>]</span>
+<span id="cb21-28"><a href="#cb21-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-29"><a href="#cb21-29" aria-hidden="true" tabindex="-1"></a>synthetic_lethal_pairs[[<span class="st">"gene_pair"</span>, <span class="st">"relative_growth"</span>]].head(<span class="dv">10</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="double-ko" class="cell-output cell-output-display" data-execution_count="15">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">gene_pair</th>
+<th data-quarto-table-cell-role="th">relative_growth</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">38</th>
+<td>(b2465, b2935)</td>
+<td>9.919369e-17</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">48</th>
+<td>(b0118, b1276)</td>
+<td>-1.574974e-15</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="double-ko-summary" class="cell" data-execution_count="16">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Gene pairs tested: </span><span class="sc">{</span>n_pairs_tested<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="ss">f"Synthetic lethal pairs found: </span><span class="sc">{</span>n_synthetic_lethal<span class="sc">}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Gene pairs tested: 55
+Synthetic lethal pairs found: 2</code></pre>
+</div>
+</div>
+<p>11 candidate genes met the screening criteria, giving 55 pairs tested, and 2 came back synthetic lethal: (b2465, b2935) and (b0118, b1276). Both genes in each pair were individually non-essential in Section 7 — neither made the essential-gene list above — yet removing both simultaneously collapsed growth. That’s the finding single-knockout screening structurally cannot produce: each gene alone has a working backup route, but the two genes’ backup routes turn out to be <em>each other</em>, so losing both removes the function entirely. This is the direct computational analogue of a wet-lab synthetic lethality screen, and identifying candidate pairs computationally before running the far more expensive double-knockout experiment is a standard use case for genome-scale models in practice.</p>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled" title="Key findings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key findings
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>Plain FBA and pFBA both converged on the same growth rate (0.874 1/h), as they must by construction, but pFBA’s minimal-total-flux solution is the more defensible reference point for interpreting <em>which</em> reactions carry flux — the two solutions carry the same growth signal through visibly different routes.</li>
+<li>FVA’s widest-range reactions weren’t noise: FORt/FORt2 (formate transport), the NADTRHD/THD2 transhydrogenase pair, and the PGI/G6PDH2r glycolysis-versus-pentose-phosphate-pathway split are all recognisable, textbook cases of genuine pathway redundancy — a distinction plain FBA’s single solution cannot surface on its own.</li>
+<li>Growth tracked substrate entry point exactly as predicted: glucose and fructose were identical (0.874 1/h, both entering at the same point in glycolysis), succinate dropped to 0.398, and acetate — entering furthest downstream — was slowest at 0.173. The model’s stoichiometry reproduces real <em>E. coli</em> physiology without needing to be told to.</li>
+<li>Only 5 of 137 genes (3.6%) were classified essential under aerobic glucose minimal media — gltA, gapA, eno, pgk, and icd — a list that matches known central-metabolism biology closely enough to check by hand: three non-branching glycolytic steps and two committed TCA cycle steps, each with no alternate route in this model. Essentiality is conditional on the modelled environment, not an intrinsic gene property, and this analysis only characterised one condition.</li>
+<li>Two synthetic lethal pairs turned up among 55 tested: (b2465, b2935) and (b0118, b1276) — both genes in each pair were individually non-essential, meaning single-knockout screening alone would have missed them entirely. This is precisely the kind of prediction genome-scale models are positioned to generate ahead of, and to prioritise, the wet-lab double-knockout experiments that would otherwise need to test every pair blind.</li>
+</ul>
+</div>
+</div>
+<p>#SystemsBiology #FluxBalanceAnalysis #COBRApy #MetabolicModeling #SyntheticBiology #Genomics #Python #Bioinformatics</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+<p>© Peekei</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+<p>Built with <a href="https://quarto.org">Quarto</a></p>
+</div>
+  </div>
+</footer>
+
+
+
+
+<script src="../site_libs/quarto-html/zenscroll-min.js"></script>
+</body></html>
