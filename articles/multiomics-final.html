@@ -240,6 +240,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="simulated-pan-cancer-cohort">2. Simulated Pan-Cancer Cohort</h2>
 <p>The simulation starts with one biological truth — patient subtype — and propagates its signal through five omic layers with realistic noise, correlation structure, and platform-specific distributional properties. Every downstream result is traceable to this ground truth.</p>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>n_patients  <span class="ot">&lt;-</span> <span class="dv">200</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>n_subtype_a <span class="ot">&lt;-</span> <span class="dv">100</span>   <span class="co"># aggressive subtype</span></span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>n_subtype_b <span class="ot">&lt;-</span> <span class="dv">100</span>   <span class="co"># indolent subtype</span></span>
@@ -279,6 +281,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a>    <span class="at">event_rate  =</span> <span class="fu">round</span>(<span class="fu">mean</span>(event), <span class="dv">2</span>),</span>
 <span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>    <span class="at">median_surv =</span> <span class="fu">round</span>(<span class="fu">median</span>(obs_time), <span class="dv">1</span>)</span>
 <span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code># A tibble: 2 × 5
   subtype     n mean_latent event_rate median_surv
@@ -288,6 +291,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 1: Genomics ──────────────────────────────────────────────────────────</span></span>
 <span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="co"># Tumour mutation burden (TMB) and copy number variation (CNV) score</span></span>
 <span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Subtype A: higher TMB, more CNV instability</span></span>
@@ -304,8 +309,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>  <span class="at">cnv_score  =</span> cnv_score,</span>
 <span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">subtype    =</span> subtype</span>
 <span id="cb3-16"><a href="#cb3-16" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 2: Transcriptomics ───────────────────────────────────────────────────</span></span>
 <span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 500 genes: 80 differentially expressed by subtype, 420 null</span></span>
 <span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>n_genes  <span class="ot">&lt;-</span> <span class="dv">500</span></span>
@@ -335,8 +343,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb4-27"><a href="#cb4-27" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb4-28"><a href="#cb4-28" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(rna_counts) <span class="ot">&lt;-</span> patient_id</span>
 <span id="cb4-29"><a href="#cb4-29" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(rna_counts) <span class="ot">&lt;-</span> gene_names</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 3: Proteomics ────────────────────────────────────────────────────────</span></span>
 <span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 200 proteins: abundance correlated with transcriptomics + measurement noise</span></span>
 <span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="co"># 50 proteins with subtype-specific shifts</span></span>
@@ -362,8 +373,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(proteomics_mat) <span class="ot">&lt;-</span> patient_id</span>
 <span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(proteomics_mat) <span class="ot">&lt;-</span> prot_names</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 4: Metabolomics ──────────────────────────────────────────────────────</span></span>
 <span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 150 metabolites: log-normal concentrations, subtype-shifted</span></span>
 <span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>n_metabolites <span class="ot">&lt;-</span> <span class="dv">150</span></span>
@@ -383,8 +397,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(metabolomics_mat) <span class="ot">&lt;-</span> patient_id</span>
 <span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(metabolomics_mat) <span class="ot">&lt;-</span> metab_names</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="co"># ── Layer 5: Epigenomics (DNA methylation) ─────────────────────────────────────</span></span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 300 CpG sites: beta values in [0,1], differentially methylated by subtype</span></span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>n_cpg      <span class="ot">&lt;-</span> <span class="dv">300</span></span>
@@ -410,26 +427,42 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a><span class="fu">colnames</span>(epigenomics_mat) <span class="ot">&lt;-</span> cpg_names</span>
 <span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"All five omic layers simulated.</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>All five omic layers simulated.</code></pre>
 </div>
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Genomics:        "</span>, n_patients, <span class="st">"patients x 2 features</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Genomics:         200 patients x 2 features</code></pre>
 </div>
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Transcriptomics: "</span>, n_patients, <span class="st">"patients x"</span>, n_genes, <span class="st">"genes</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Transcriptomics:  200 patients x 500 genes</code></pre>
 </div>
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Proteomics:      "</span>, n_patients, <span class="st">"patients x"</span>, n_proteins, <span class="st">"proteins</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Proteomics:       200 patients x 200 proteins</code></pre>
 </div>
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Metabolomics:    "</span>, n_patients, <span class="st">"patients x"</span>, n_metabolites, <span class="st">"metabolites</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Metabolomics:     200 patients x 150 metabolites</code></pre>
 </div>
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Epigenomics:     "</span>, n_patients, <span class="st">"patients x"</span>, n_cpg, <span class="st">"CpG sites</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Epigenomics:      200 patients x 300 CpG sites</code></pre>
 </div>
@@ -442,6 +475,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="genomics-mutation-burden-and-copy-number" class="level3">
 <h3 class="anchored" data-anchor-id="genomics-mutation-burden-and-copy-number">3.1 Genomics: Mutation Burden and Copy Number</h3>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>tmb_test  <span class="ot">&lt;-</span> <span class="fu">wilcox.test</span>(tmb <span class="sc">~</span> subtype, <span class="at">data =</span> genomics_df)</span>
 <span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>cnv_test  <span class="ot">&lt;-</span> <span class="fu">wilcox.test</span>(cnv_score <span class="sc">~</span> subtype, <span class="at">data =</span> genomics_df)</span>
 <span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -450,8 +485,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a>tmb_med_a <span class="ot">&lt;-</span> <span class="fu">median</span>(genomics_df<span class="sc">$</span>tmb[genomics_df<span class="sc">$</span>subtype <span class="sc">==</span> <span class="st">"A"</span>])</span>
 <span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a>tmb_med_b <span class="ot">&lt;-</span> <span class="fu">median</span>(genomics_df<span class="sc">$</span>tmb[genomics_df<span class="sc">$</span>subtype <span class="sc">==</span> <span class="st">"B"</span>])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>p_tmb <span class="ot">&lt;-</span> <span class="fu">ggplot</span>(genomics_df, <span class="fu">aes</span>(<span class="at">x =</span> subtype, <span class="at">y =</span> tmb, <span class="at">fill =</span> subtype)) <span class="sc">+</span></span>
 <span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_boxplot</span>(<span class="at">alpha =</span> <span class="fl">0.7</span>, <span class="at">outlier.alpha =</span> <span class="fl">0.4</span>) <span class="sc">+</span></span>
 <span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_fill_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="st">"#E64B35"</span>, <span class="at">B =</span> <span class="st">"#4DBBD5"</span>)) <span class="sc">+</span></span>
@@ -465,6 +503,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>() <span class="sc">+</span> <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"none"</span>)</span>
 <span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb20-13"><a href="#cb20-13" aria-hidden="true" tabindex="-1"></a>p_tmb <span class="sc">+</span> p_cnv</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -479,6 +518,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="transcriptomics-differential-expression" class="level3">
 <h3 class="anchored" data-anchor-id="transcriptomics-differential-expression">3.2 Transcriptomics: Differential Expression</h3>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Log-CPM normalisation then limma for DE</span></span>
 <span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>log_cpm <span class="ot">&lt;-</span> <span class="fu">log2</span>(rna_counts <span class="sc">/</span> <span class="fu">rowSums</span>(rna_counts) <span class="sc">*</span> <span class="fl">1e6</span> <span class="sc">+</span> <span class="dv">1</span>)</span>
 <span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -492,8 +533,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>top_gene   <span class="ot">&lt;-</span> <span class="fu">rownames</span>(de_results)[<span class="dv">1</span>]</span>
 <span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>top_lfc    <span class="ot">&lt;-</span> de_results<span class="sc">$</span>logFC[<span class="dv">1</span>]</span>
 <span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a>top_fdr    <span class="ot">&lt;-</span> de_results<span class="sc">$</span>adj.P.Val[<span class="dv">1</span>]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>de_results <span class="sc">%&gt;%</span></span>
 <span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">rownames_to_column</span>(<span class="st">"gene"</span>) <span class="sc">%&gt;%</span></span>
 <span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
@@ -514,6 +558,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"log2 fold change (A vs B)"</span>,</span>
 <span id="cb22-19"><a href="#cb22-19" aria-hidden="true" tabindex="-1"></a>       <span class="at">y =</span> <span class="st">"-log10(FDR)"</span>, <span class="at">color =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
 <span id="cb22-20"><a href="#cb22-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -528,6 +573,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="proteomics-differential-abundance" class="level3">
 <h3 class="anchored" data-anchor-id="proteomics-differential-abundance">3.3 Proteomics: Differential Abundance</h3>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="co"># limma on log-transformed protein abundances</span></span>
 <span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>log_prot <span class="ot">&lt;-</span> <span class="fu">log2</span>(proteomics_mat <span class="sc">-</span> <span class="fu">min</span>(proteomics_mat) <span class="sc">+</span> <span class="dv">1</span>)</span>
 <span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -536,8 +583,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>prot_res  <span class="ot">&lt;-</span> <span class="fu">topTable</span>(fit_prot, <span class="at">coef =</span> <span class="dv">2</span>, <span class="at">number =</span> <span class="cn">Inf</span>, <span class="at">sort.by =</span> <span class="st">"P"</span>)</span>
 <span id="cb23-7"><a href="#cb23-7" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb23-8"><a href="#cb23-8" aria-hidden="true" tabindex="-1"></a>n_da_prot <span class="ot">&lt;-</span> <span class="fu">sum</span>(<span class="fu">abs</span>(prot_res<span class="sc">$</span>logFC) <span class="sc">&gt;</span> <span class="fl">0.3</span> <span class="sc">&amp;</span> prot_res<span class="sc">$</span>adj.P.Val <span class="sc">&lt;</span> <span class="fl">0.05</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>top40_prots <span class="ot">&lt;-</span> <span class="fu">rownames</span>(prot_res)[<span class="dv">1</span><span class="sc">:</span><span class="dv">40</span>]</span>
 <span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>annot_col   <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">Subtype =</span> subtype)</span>
 <span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a><span class="fu">rownames</span>(annot_col) <span class="ot">&lt;-</span> patient_id</span>
@@ -551,6 +601,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">annotation_colors =</span> <span class="fu">list</span>(<span class="at">Subtype =</span> <span class="fu">c</span>(<span class="at">A =</span> <span class="st">"#E64B35"</span>, <span class="at">B =</span> <span class="st">"#4DBBD5"</span>)),</span>
 <span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">main            =</span> <span class="st">"Top 40 proteins (log2 abundance)"</span></span>
 <span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -565,6 +616,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="metabolomics-metabolite-shifts" class="level3">
 <h3 class="anchored" data-anchor-id="metabolomics-metabolite-shifts">3.4 Metabolomics: Metabolite Shifts</h3>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a>log_metab <span class="ot">&lt;-</span> <span class="fu">log</span>(metabolomics_mat <span class="sc">+</span> <span class="dv">1</span>)</span>
 <span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>fit_metab <span class="ot">&lt;-</span> <span class="fu">lmFit</span>(<span class="fu">t</span>(log_metab), design_mat)</span>
@@ -580,8 +633,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb25-13"><a href="#cb25-13" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb25-14"><a href="#cb25-14" aria-hidden="true" tabindex="-1"></a>var_pc1 <span class="ot">&lt;-</span> <span class="fu">round</span>(<span class="fu">summary</span>(pca_metab)<span class="sc">$</span>importance[<span class="dv">2</span>, <span class="dv">1</span>] <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>)</span>
 <span id="cb25-15"><a href="#cb25-15" aria-hidden="true" tabindex="-1"></a>var_pc2 <span class="ot">&lt;-</span> <span class="fu">round</span>(<span class="fu">summary</span>(pca_metab)<span class="sc">$</span>importance[<span class="dv">2</span>, <span class="dv">2</span>] <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(pca_df, <span class="fu">aes</span>(<span class="at">x =</span> PC1, <span class="at">y =</span> PC2, <span class="at">color =</span> subtype)) <span class="sc">+</span></span>
 <span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.7</span>, <span class="at">size =</span> <span class="dv">2</span>) <span class="sc">+</span></span>
 <span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stat_ellipse</span>(<span class="at">level =</span> <span class="fl">0.90</span>, <span class="at">linewidth =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
@@ -590,6 +646,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb26-6"><a href="#cb26-6" aria-hidden="true" tabindex="-1"></a>       <span class="at">y =</span> <span class="fu">paste0</span>(<span class="st">"PC2 ("</span>, var_pc2, <span class="st">"%)"</span>),</span>
 <span id="cb26-7"><a href="#cb26-7" aria-hidden="true" tabindex="-1"></a>       <span class="at">color =</span> <span class="st">"Subtype"</span>) <span class="sc">+</span></span>
 <span id="cb26-8"><a href="#cb26-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -604,6 +661,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="epigenomics-differential-methylation" class="level3">
 <h3 class="anchored" data-anchor-id="epigenomics-differential-methylation">3.5 Epigenomics: Differential Methylation</h3>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>fit_epi <span class="ot">&lt;-</span> <span class="fu">lmFit</span>(<span class="fu">t</span>(epigenomics_mat), design_mat)</span>
 <span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a>fit_epi <span class="ot">&lt;-</span> <span class="fu">eBayes</span>(fit_epi)</span>
 <span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a>epi_res <span class="ot">&lt;-</span> <span class="fu">topTable</span>(fit_epi, <span class="at">coef =</span> <span class="dv">2</span>, <span class="at">number =</span> <span class="cn">Inf</span>, <span class="at">sort.by =</span> <span class="st">"P"</span>)</span>
@@ -615,6 +674,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Single-omic classification accuracy using top CpGs</span></span>
 <span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a>top_cpgs_class <span class="ot">&lt;-</span> <span class="fu">rownames</span>(epi_res)[<span class="dv">1</span><span class="sc">:</span><span class="dv">20</span>]</span>
 <span id="cb27-11"><a href="#cb27-11" aria-hidden="true" tabindex="-1"></a>epi_features   <span class="ot">&lt;-</span> epigenomics_mat[, top_cpgs_class]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <p>254 differentially methylated CpG sites (FDR &lt; 5%, |Δβ| &gt; 0.1). Top site: CpG_233 (Δβ = -0.519). The methylation landscape provides an orthogonal view of subtype biology — CpG silencing of tumour suppressors in Subtype A is a separate biological mechanism from the TMB excess or the transcriptional reprogramming, even though all three trace back to the same latent biological state in this simulation.</p>
 </section>
@@ -624,6 +684,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <p>Individual layers each see part of the signal. Integration extracts latent factors that span all five layers simultaneously — the subtype-associated variation that appears in genomics AND transcriptomics AND proteomics is more likely to be real biology than variation visible in only one layer.</p>
 <p>We implement a simplified multi-omics matrix factorisation (MOMA): concatenate normalised feature matrices from all layers, run PCA on the joint space, and extract the top latent factors. Each factor is then scored for its contribution from each omic layer.</p>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Normalise each layer to zero mean, unit variance before concatenation</span></span>
 <span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>scale_mat <span class="ot">&lt;-</span> <span class="cf">function</span>(mat) <span class="fu">scale</span>(mat)</span>
 <span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -655,6 +717,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb28-29"><a href="#cb28-29" aria-hidden="true" tabindex="-1"></a>  <span class="at">Cum_pct =</span> <span class="fu">round</span>(cum_var, <span class="dv">1</span>)</span>
 <span id="cb28-30"><a href="#cb28-30" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb28-31"><a href="#cb28-31" aria-hidden="true" tabindex="-1"></a>var_table</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code># A tibble: 5 × 3
   Factor Var_pct Cum_pct
@@ -667,6 +730,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb30"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(int_df, <span class="fu">aes</span>(<span class="at">x =</span> PC1, <span class="at">y =</span> PC2, <span class="at">color =</span> subtype, <span class="at">size =</span> <span class="fu">abs</span>(latent))) <span class="sc">+</span></span>
 <span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.75</span>) <span class="sc">+</span></span>
 <span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stat_ellipse</span>(<span class="fu">aes</span>(<span class="at">group =</span> subtype), <span class="at">level =</span> <span class="fl">0.90</span>,</span>
@@ -677,6 +742,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a>       <span class="at">y =</span> <span class="fu">paste0</span>(<span class="st">"Factor 2 ("</span>, <span class="fu">round</span>(var_exp[<span class="dv">2</span>], <span class="dv">1</span>), <span class="st">"% variance)"</span>),</span>
 <span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a>       <span class="at">color =</span> <span class="st">"Subtype"</span>) <span class="sc">+</span></span>
 <span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -687,6 +753,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tibble</span>(</span>
 <span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">factor  =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>,</span>
 <span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">var_pct =</span> <span class="fu">summary</span>(pca_int)<span class="sc">$</span>importance[<span class="dv">2</span>, <span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>] <span class="sc">*</span> <span class="dv">100</span></span>
@@ -698,6 +766,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb31-9"><a href="#cb31-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_continuous</span>(<span class="at">breaks =</span> <span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>) <span class="sc">+</span></span>
 <span id="cb31-10"><a href="#cb31-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Factor"</span>, <span class="at">y =</span> <span class="st">"Variance explained (%)"</span>) <span class="sc">+</span></span>
 <span id="cb31-11"><a href="#cb31-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -713,6 +782,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="machine-learning-classification">5. Machine Learning Classification</h2>
 <p>With the integrated latent factors computed, we now ask: how well can subtype be predicted from integrated features vs.&nbsp;single-omic features? We use a random forest classifier with 5-fold cross-validation, comparing three feature sets: (1) genomics only, (2) top transcriptomics features only, (3) integrated multi-omics factors.</p>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb32"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Feature sets for ML comparison</span></span>
 <span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 1. Genomics only</span></span>
 <span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a>feat_genomics <span class="ot">&lt;-</span> <span class="fu">cbind</span>(tmb, cnv_score)</span>
@@ -734,8 +805,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb32-19"><a href="#cb32-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">feat_integrated =</span> feat_integrated,</span>
 <span id="cb32-20"><a href="#cb32-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">y               =</span> y_labels</span>
 <span id="cb32-21"><a href="#cb32-21" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
 <span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
 <span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> sklearn.ensemble <span class="im">import</span> RandomForestClassifier</span>
@@ -775,11 +849,15 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb33-37"><a href="#cb33-37" aria-hidden="true" tabindex="-1"></a>    roc_data[name] <span class="op">=</span> {<span class="st">"fpr"</span>: fpr.tolist(), <span class="st">"tpr"</span>: tpr.tolist(), <span class="st">"auc"</span>: auc}</span>
 <span id="cb33-38"><a href="#cb33-38" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb33-39"><a href="#cb33-39" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(<span class="st">"Cross-validated AUC by feature set:"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Cross-validated AUC by feature set:</code></pre>
 </div>
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> name, auc <span class="kw">in</span> results.items():</span>
 <span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(<span class="ss">f"  </span><span class="sc">{</span>name<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>auc<span class="sc">:.4f}</span><span class="ss">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>  Genomics only: 0.9544
   Transcriptomics: 1.0000
@@ -787,6 +865,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> shap</span>
 <span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a><span class="co"># SHAP on multi-omics model (train on full data for SHAP, CV AUC already computed)</span></span>
@@ -795,10 +875,13 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a>rf_full     <span class="op">=</span> RandomForestClassifier(n_estimators<span class="op">=</span><span class="dv">500</span>, max_depth<span class="op">=</span><span class="dv">6</span>,</span>
 <span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a>                                      random_state<span class="op">=</span><span class="dv">2025</span>, n_jobs<span class="op">=-</span><span class="dv">1</span>)</span>
 <span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a>rf_full.fit(X_int_sc, y)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>RandomForestClassifier(max_depth=6, n_estimators=500, n_jobs=-1,
                        random_state=2025)</code></pre>
 </div>
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>explainer   <span class="op">=</span> shap.TreeExplainer(rf_full)</span>
 <span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>shap_values <span class="op">=</span> explainer.shap_values(X_int_sc)</span>
 <span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -821,6 +904,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb39-20"><a href="#cb39-20" aria-hidden="true" tabindex="-1"></a>}).sort_values(<span class="st">"mean_shap"</span>, ascending<span class="op">=</span><span class="va">False</span>)</span>
 <span id="cb39-21"><a href="#cb39-21" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb39-22"><a href="#cb39-22" aria-hidden="true" tabindex="-1"></a><span class="bu">print</span>(shap_df.to_string(index<span class="op">=</span><span class="va">False</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>   factor  mean_shap
  Factor_1   0.406330
@@ -836,6 +920,8 @@ Factor_10   0.005295
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Pull ROC data back from Python</span></span>
 <span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a>roc_list <span class="ot">&lt;-</span> py<span class="sc">$</span>roc_data</span>
 <span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -870,6 +956,7 @@ Factor_10   0.005295
 <span id="cb41-32"><a href="#cb41-32" aria-hidden="true" tabindex="-1"></a>       <span class="at">color =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
 <span id="cb41-33"><a href="#cb41-33" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>() <span class="sc">+</span></span>
 <span id="cb41-34"><a href="#cb41-34" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="fu">c</span>(<span class="fl">0.65</span>, <span class="fl">0.25</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -880,6 +967,8 @@ Factor_10   0.005295
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb42"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb42-1"><a href="#cb42-1" aria-hidden="true" tabindex="-1"></a>shap_df_r <span class="ot">&lt;-</span> py<span class="sc">$</span>shap_df</span>
 <span id="cb42-2"><a href="#cb42-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb42-3"><a href="#cb42-3" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(shap_df_r, <span class="fu">aes</span>(<span class="at">x =</span> <span class="fu">reorder</span>(factor, mean_shap), <span class="at">y =</span> mean_shap)) <span class="sc">+</span></span>
@@ -887,6 +976,7 @@ Factor_10   0.005295
 <span id="cb42-5"><a href="#cb42-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">coord_flip</span>() <span class="sc">+</span></span>
 <span id="cb42-6"><a href="#cb42-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="cn">NULL</span>, <span class="at">y =</span> <span class="st">"Mean |SHAP value|"</span>) <span class="sc">+</span></span>
 <span id="cb42-7"><a href="#cb42-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -897,17 +987,34 @@ Factor_10   0.005295
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a>auc_gen  <span class="ot">&lt;-</span> py<span class="sc">$</span>results[[<span class="st">"Genomics only"</span>]]</span>
 <span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a>auc_rna  <span class="ot">&lt;-</span> py<span class="sc">$</span>results[[<span class="st">"Transcriptomics"</span>]]</span>
 <span id="cb43-3"><a href="#cb43-3" aria-hidden="true" tabindex="-1"></a>auc_int  <span class="ot">&lt;-</span> py<span class="sc">$</span>results[[<span class="st">"Multi-omics"</span>]]</span>
 <span id="cb43-4"><a href="#cb43-4" aria-hidden="true" tabindex="-1"></a>auc_gain <span class="ot">&lt;-</span> <span class="fu">round</span>((auc_int <span class="sc">-</span> auc_rna) <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
+<div class="callout callout-style-default callout-warning callout-titled" title="Methodological caveat: feature leakage">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>Methodological caveat: feature leakage
+</div>
+</div>
+<div class="callout-body-container callout-body">
 <p>Cross-validated AUC: genomics only = 0.954, transcriptomics alone = 1.000, integrated multi-omics = 1.000. This is worth stating plainly rather than forcing the “integration wins” narrative the earlier sections set up: transcriptomics and the integrated model tied, both at ceiling. Part of that ceiling is a genuine simulation property — the transcriptomic effect (LFC ≈ 1.8 across 80 genes) is large. But part of it is a methodological issue worth naming directly: the 20 transcriptomics features were selected by testing for differential expression across the <em>entire</em> cohort, then reused as classifier inputs. That’s feature selection performed outside the cross-validation loop, and it leaks label information into the feature set before the model ever sees held-out data — a peer reviewer would flag this immediately, and a corrected version of this analysis would nest the DE-based feature selection inside each CV fold rather than fixing it beforehand. Real RNA-seq biomarkers essentially never reach AUC = 1.0 on independent validation; this result is inflated by that leakage, not just by simulation effect size. Where the gain is real and not subject to this concern is genomics vs.&nbsp;multi-omics: 0.954 to 1.000, a 4.6-point improvement — genomics wasn’t pre-selected for separability the way the transcriptomics features were, so that comparison is the more trustworthy one in this analysis. The SHAP analysis shows Factor 1 (mean |SHAP| = 0.406) dominating the classifier’s decisions by roughly 30-fold over the next most influential factor (Factor 4, mean |SHAP| = 0.014), consistent with Factor 1 capturing nearly the entire subtype-discriminating signal across the joint omic space.</p>
+</div>
+</div>
 </section>
 <section id="systems-biology-interpretation" class="level2">
 <h2 class="anchored" data-anchor-id="systems-biology-interpretation">6. Systems Biology Interpretation</h2>
 <p>The top DE genes from transcriptomics, viewed in isolation, are a list of names. Systems biology asks: what biological processes do they collectively represent? Pathway-level analysis aggregates per-gene signal into process-level signal, which is both more interpretable and more statistically stable — individual gene effects can be noisy while the pathway they belong to shows a consistent direction.</p>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Simulate pathway membership (in practice: MSigDB, KEGG, Reactome)</span></span>
 <span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a><span class="co"># 10 pathways, each consisting of a subset of the 500 genes</span></span>
 <span id="cb44-3"><a href="#cb44-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -954,6 +1061,7 @@ Factor_10   0.005295
 <span id="cb44-44"><a href="#cb44-44" aria-hidden="true" tabindex="-1"></a>pathway_res <span class="sc">%&gt;%</span></span>
 <span id="cb44-45"><a href="#cb44-45" aria-hidden="true" tabindex="-1"></a>  dplyr<span class="sc">::</span><span class="fu">select</span>(pathway, n_pathway, n_overlap, odds_ratio, fdr) <span class="sc">%&gt;%</span></span>
 <span id="cb44-46"><a href="#cb44-46" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="fu">across</span>(<span class="fu">where</span>(is.numeric), <span class="sc">~</span><span class="fu">round</span>(.x, <span class="dv">3</span>)))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code># A tibble: 10 × 5
    pathway                   n_pathway n_overlap odds_ratio   fdr
@@ -971,6 +1079,8 @@ Factor_10   0.005295
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a>pathway_res <span class="sc">%&gt;%</span></span>
 <span id="cb46-2"><a href="#cb46-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
 <span id="cb46-3"><a href="#cb46-3" aria-hidden="true" tabindex="-1"></a>    <span class="at">sig      =</span> fdr <span class="sc">&lt;</span> <span class="fl">0.05</span>,</span>
@@ -984,6 +1094,7 @@ Factor_10   0.005295
 <span id="cb46-11"><a href="#cb46-11" aria-hidden="true" tabindex="-1"></a>                    <span class="at">name   =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
 <span id="cb46-12"><a href="#cb46-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Odds ratio"</span>, <span class="at">y =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
 <span id="cb46-13"><a href="#cb46-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -994,10 +1105,13 @@ Factor_10   0.005295
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb47"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a>top_pw      <span class="ot">&lt;-</span> pathway_res<span class="sc">$</span>pathway[<span class="dv">1</span>]</span>
 <span id="cb47-2"><a href="#cb47-2" aria-hidden="true" tabindex="-1"></a>top_pw_fdr  <span class="ot">&lt;-</span> pathway_res<span class="sc">$</span>fdr[<span class="dv">1</span>]</span>
 <span id="cb47-3"><a href="#cb47-3" aria-hidden="true" tabindex="-1"></a>top_pw_or   <span class="ot">&lt;-</span> pathway_res<span class="sc">$</span>odds_ratio[<span class="dv">1</span>]</span>
 <span id="cb47-4"><a href="#cb47-4" aria-hidden="true" tabindex="-1"></a>n_sig_pw    <span class="ot">&lt;-</span> <span class="fu">sum</span>(pathway_res<span class="sc">$</span>fdr <span class="sc">&lt;</span> <span class="fl">0.05</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <p>None of the 10 simulated pathways reached FDR &lt; 5% (top hit: Epithelial-mesenchymal, OR = 2.43, FDR = 0.354). Worth being direct about why: pathway membership in this simulation was assigned by randomly sampling gene names into each pathway, independent of which genes were actually differentially expressed. That was a simplification to demonstrate the mechanics of the enrichment test — contingency table construction, Fisher’s exact test, BH correction — without also having to encode a second, separate layer of ground truth linking specific genes to specific pathways. A null result here is therefore the <em>expected</em> outcome of how the simulation was built, not a biological finding about these subtypes. In a real analysis, pathway membership comes from curated, biologically grounded databases (MSigDB, Reactome, KEGG) where genes are assigned to pathways based on actual functional annotation, and a true DE signal concentrated in a specific biological process would produce a real enrichment signal. The methodology demonstrated here — the contingency table logic and multiple-testing correction — carries over directly; only the gene-to-pathway mapping would need to be real.</p>
 </section>
@@ -1005,6 +1119,8 @@ Factor_10   0.005295
 <h2 class="anchored" data-anchor-id="personalised-medicine-patient-level-profiles">7. Personalised Medicine: Patient-Level Profiles</h2>
 <p>The multi-omics framework produces subtype-level summaries, but its real clinical value is at the patient level. Two patients — one representative of each subtype — are profiled across all five omic layers and assessed against the integrated model.</p>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Pick two patients: most extreme Factor 1 loading in each subtype</span></span>
 <span id="cb48-2"><a href="#cb48-2" aria-hidden="true" tabindex="-1"></a>patient_a <span class="ot">&lt;-</span> int_df <span class="sc">%&gt;%</span></span>
 <span id="cb48-3"><a href="#cb48-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(subtype <span class="sc">==</span> <span class="st">"A"</span>) <span class="sc">%&gt;%</span></span>
@@ -1043,6 +1159,7 @@ Factor_10   0.005295
 <span id="cb48-36"><a href="#cb48-36" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb48-37"><a href="#cb48-37" aria-hidden="true" tabindex="-1"></a>)</span>
 <span id="cb48-38"><a href="#cb48-38" aria-hidden="true" tabindex="-1"></a>profile_tbl</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code># A tibble: 6 × 3
   Feature          P023  P179  
@@ -1056,6 +1173,8 @@ Factor_10   0.005295
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb50"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Standardise 5 summary scores across all patients for radar-style bar chart</span></span>
 <span id="cb50-2"><a href="#cb50-2" aria-hidden="true" tabindex="-1"></a>omic_summary <span class="ot">&lt;-</span> <span class="fu">tibble</span>(</span>
 <span id="cb50-3"><a href="#cb50-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">patient     =</span> patient_id,</span>
@@ -1079,6 +1198,7 @@ Factor_10   0.005295
 <span id="cb50-21"><a href="#cb50-21" aria-hidden="true" tabindex="-1"></a>       <span class="at">fill =</span> <span class="st">"Subtype"</span>) <span class="sc">+</span></span>
 <span id="cb50-22"><a href="#cb50-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>() <span class="sc">+</span></span>
 <span id="cb50-23"><a href="#cb50-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">axis.text.x =</span> <span class="fu">element_text</span>(<span class="at">angle =</span> <span class="dv">30</span>, <span class="at">hjust =</span> <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -1089,6 +1209,8 @@ Factor_10   0.005295
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb51"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a>surv_obj <span class="ot">&lt;-</span> <span class="fu">Surv</span>(cohort_meta<span class="sc">$</span>obs_time, cohort_meta<span class="sc">$</span>event)</span>
 <span id="cb51-2"><a href="#cb51-2" aria-hidden="true" tabindex="-1"></a>km_fit   <span class="ot">&lt;-</span> <span class="fu">survfit</span>(surv_obj <span class="sc">~</span> subtype, <span class="at">data =</span> cohort_meta)</span>
 <span id="cb51-3"><a href="#cb51-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -1103,6 +1225,7 @@ Factor_10   0.005295
 <span id="cb51-12"><a href="#cb51-12" aria-hidden="true" tabindex="-1"></a>  <span class="at">xlab         =</span> <span class="st">"Time (months)"</span>,</span>
 <span id="cb51-13"><a href="#cb51-13" aria-hidden="true" tabindex="-1"></a>  <span class="at">ylab         =</span> <span class="st">"Survival probability"</span></span>
 <span id="cb51-14"><a href="#cb51-14" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -1113,15 +1236,41 @@ Factor_10   0.005295
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb52"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a>lr_test   <span class="ot">&lt;-</span> <span class="fu">survdiff</span>(surv_obj <span class="sc">~</span> subtype, <span class="at">data =</span> cohort_meta)</span>
 <span id="cb52-2"><a href="#cb52-2" aria-hidden="true" tabindex="-1"></a>lr_p      <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">-</span> <span class="fu">pchisq</span>(lr_test<span class="sc">$</span>chisq, <span class="at">df =</span> <span class="dv">1</span>)</span>
 <span id="cb52-3"><a href="#cb52-3" aria-hidden="true" tabindex="-1"></a>med_surv_a <span class="ot">&lt;-</span> <span class="fu">summary</span>(km_fit)<span class="sc">$</span>table[<span class="st">"subtype=A"</span>, <span class="st">"median"</span>]</span>
 <span id="cb52-4"><a href="#cb52-4" aria-hidden="true" tabindex="-1"></a>med_surv_b <span class="ot">&lt;-</span> <span class="fu">summary</span>(km_fit)<span class="sc">$</span>table[<span class="st">"subtype=B"</span>, <span class="st">"median"</span>]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <p>Patient P023 (Subtype A): extreme Factor 1 loading (14.64), elevated TMB (33), high CNV instability (1.41) — and, tellingly, an observed time of just 1 month with an event recorded. Patient P179 (Subtype B): the mirror image — Factor 1 loading of -14.06, TMB of 0, CNV score of -0.87, and 21.2 months of follow-up with no event. These aren’t cherry-picked for the contrast; they were selected purely on Factor 1 extremity, and the survival difference fell out of that selection on its own. The KM curves confirm the pattern holds across the full cohort: subtype assignment — derived purely from multi-omics profiling, with no survival information used during classification — stratifies patients with genuinely different outcomes (log-rank p = 1.49e-09, median survival 9.2 vs.&nbsp;28.5 months). That predictive validity, emerging from molecular data alone, is the promise of multi-omics personalised medicine.</p>
+<div class="callout callout-style-default callout-tip callout-titled" title="Run this yourself">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Run this yourself
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The unsupervised integration step here — multiple omic blocks combined into shared latent factors — is close in spirit to <code>integrate_multiomics()</code> in <a href="https://github.com/Real-peekei/omicsuite"><code>omicsuite</code></a>, which runs RGCCA-based block integration with a bootstrap loading-stability check and returns a structured verdict table. The downstream ML classification and SHAP interpretability layer here goes beyond what the package currently packages.</p>
+</div>
+</div>
 </section>
 <section id="takeaways" class="level2">
 <h2 class="anchored" data-anchor-id="takeaways">8. Takeaways</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled" title="Key findings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key findings
+</div>
+</div>
+<div class="callout-body-container callout-body">
 <ul>
 <li>The AUC comparison surfaced an honest limitation rather than a clean “integration wins” story: transcriptomics alone hit AUC = 1.000, tying the integrated model, partly because the simulated effect size was large and partly because of a real methodological issue — the transcriptomics features were DE-selected on the full dataset before being fed to the classifier, which leaks label information ahead of cross-validation and inflates both numbers. The trustworthy comparison in this analysis is genomics (0.954, not pre-selected) to multi-omics (1.000) — a 4.6-point gain where integration demonstrably closed a real gap.</li>
 <li>The latent factor structure of the integrated data is interpretable: Factor 1 alone explains 41.6% of joint variance, dominates the SHAP importance ranking roughly 30-fold over the next factor, and patients with extreme Factor 1 loadings have the most extreme single-omic profiles across every layer. Integration doesn’t produce a black box here — it produces a lower-dimensional representation that is arguably more legible than any individual omic layer.</li>
@@ -1130,6 +1279,8 @@ Factor_10   0.005295
 <li>The R + Python integration via <code>reticulate</code> is seamless for this workflow: R handles the statistical modelling and visualisation where its ecosystem is stronger (limma, survminer, pheatmap), Python handles the ML and SHAP layer where scikit-learn and the SHAP library are more mature. Neither language does everything best; neither should have to.</li>
 <li>Cancer as a genomic disease means that somatic alterations (TMB, CNV) initiate the cascade, but the phenotype a clinician sees — proliferative rate, immune evasion, drug resistance — is the product of that cascade propagating through transcription, translation, metabolism, and epigenetic remodelling. Measuring only the initiating layer, or only one downstream layer, gives an incomplete picture of a complete process.</li>
 </ul>
+</div>
+</div>
 <p>#MultiOmics #Genomics #Transcriptomics #Proteomics #Metabolomics #Epigenomics #MachineLearning #SystemsBiology #PersonalisedMedicine #Bioinformatics #RStats #Python #CancerGenomics</p>
 
 

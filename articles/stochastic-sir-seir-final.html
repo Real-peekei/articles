@@ -232,6 +232,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="model-parameters" class="level2">
 <h2 class="anchored" data-anchor-id="model-parameters">2. Model Parameters</h2>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>N      <span class="ot">&lt;-</span> <span class="dv">1000</span>   <span class="co"># total population</span></span>
 <span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>beta   <span class="ot">&lt;-</span> <span class="fl">0.3</span>    <span class="co"># transmission rate per contact per day</span></span>
 <span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>gamma  <span class="ot">&lt;-</span> <span class="fl">0.1</span>    <span class="co"># recovery rate per day</span></span>
@@ -240,14 +242,21 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>t_end  <span class="ot">&lt;-</span> <span class="dv">160</span>    <span class="co"># simulation horizon in days</span></span>
 <span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"R0 ="</span>, R0, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>R0 = 3 </code></pre>
 </div>
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Mean infectious period ="</span>, <span class="dv">1</span><span class="sc">/</span>gamma, <span class="st">"days</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Mean infectious period = 10 days</code></pre>
 </div>
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Herd immunity threshold ="</span>, <span class="fu">round</span>((<span class="dv">1</span> <span class="sc">-</span> <span class="dv">1</span><span class="sc">/</span>R0)<span class="sc">*</span><span class="dv">100</span>, <span class="dv">1</span>), <span class="st">"%</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output cell-output-stdout">
 <pre><code>Herd immunity threshold = 66.7 %</code></pre>
 </div>
@@ -257,6 +266,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="deterministic-sir-baseline" class="level2">
 <h2 class="anchored" data-anchor-id="deterministic-sir-baseline">3. Deterministic SIR Baseline</h2>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>sir_ode <span class="ot">&lt;-</span> <span class="cf">function</span>(t, state, parms) {</span>
 <span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>  S <span class="ot">&lt;-</span> state[<span class="st">"S"</span>]; I <span class="ot">&lt;-</span> state[<span class="st">"I"</span>]; R <span class="ot">&lt;-</span> state[<span class="st">"R"</span>]</span>
 <span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>  b <span class="ot">&lt;-</span> parms[<span class="st">"beta"</span>]; g <span class="ot">&lt;-</span> parms[<span class="st">"gamma"</span>]</span>
@@ -278,8 +289,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>peak_t_ode  <span class="ot">&lt;-</span> ode_out<span class="sc">$</span>time[<span class="fu">which.max</span>(ode_out<span class="sc">$</span>I)]</span>
 <span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>final_R_ode <span class="ot">&lt;-</span> <span class="fu">tail</span>(ode_out<span class="sc">$</span>R, <span class="dv">1</span>)</span>
 <span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>attack_rate <span class="ot">&lt;-</span> <span class="fu">round</span>(final_R_ode <span class="sc">/</span> N <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>ode_out <span class="sc">%&gt;%</span></span>
 <span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pivot_longer</span>(<span class="fu">c</span>(S, I, R), <span class="at">names_to =</span> <span class="st">"compartment"</span>, <span class="at">values_to =</span> <span class="st">"count"</span>) <span class="sc">%&gt;%</span></span>
 <span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">compartment =</span> <span class="fu">factor</span>(compartment, <span class="at">levels =</span> <span class="fu">c</span>(<span class="st">"S"</span>,<span class="st">"I"</span>,<span class="st">"R"</span>))) <span class="sc">%&gt;%</span></span>
@@ -290,6 +304,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">labels =</span> <span class="fu">c</span>(<span class="at">S =</span> <span class="st">"Susceptible"</span>, <span class="at">I =</span> <span class="st">"Infectious"</span>, <span class="at">R =</span> <span class="st">"Recovered"</span>)) <span class="sc">+</span></span>
 <span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Day"</span>, <span class="at">y =</span> <span class="st">"Count"</span>, <span class="at">color =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
 <span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -305,6 +320,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="gillespie-algorithm-exact-stochastic-simulation">4. Gillespie Algorithm: Exact Stochastic Simulation</h2>
 <p>At each step, the Gillespie algorithm draws an exponentially distributed waiting time (rate = sum of all event rates) and selects which event fires proportional to individual rates. For SIR: transmission fires at rate beta<em>S</em>I/N, recovery at rate gamma*I.</p>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>gillespie_sir <span class="ot">&lt;-</span> <span class="cf">function</span>(N, beta, gamma, <span class="at">I0 =</span> <span class="dv">1</span>, <span class="at">t_end =</span> <span class="dv">160</span>) {</span>
 <span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>  S <span class="ot">&lt;-</span> N <span class="sc">-</span> I0; I <span class="ot">&lt;-</span> I0; R <span class="ot">&lt;-</span> <span class="dv">0</span>L</span>
 <span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>  t <span class="ot">&lt;-</span> <span class="fl">0.0</span></span>
@@ -333,8 +350,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb9-26"><a href="#cb9-26" aria-hidden="true" tabindex="-1"></a>}</span>
 <span id="cb9-27"><a href="#cb9-27" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb9-28"><a href="#cb9-28" aria-hidden="true" tabindex="-1"></a>single_run <span class="ot">&lt;-</span> <span class="fu">gillespie_sir</span>(N, beta, gamma)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>() <span class="sc">+</span></span>
 <span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_line</span>(<span class="at">data =</span> ode_out,</span>
 <span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>            <span class="fu">aes</span>(<span class="at">x =</span> time, <span class="at">y =</span> I, <span class="at">color =</span> <span class="st">"Deterministic ODE"</span>),</span>
@@ -347,6 +367,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Stochastic (single run)"</span> <span class="ot">=</span> <span class="st">"#3C5488"</span>)) <span class="sc">+</span></span>
 <span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Day"</span>, <span class="at">y =</span> <span class="st">"Infectious count"</span>, <span class="at">color =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
 <span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -361,6 +382,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <section id="stochastic-ensemble-and-trajectory-variability" class="level2">
 <h2 class="anchored" data-anchor-id="stochastic-ensemble-and-trajectory-variability">5. Stochastic Ensemble and Trajectory Variability</h2>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>n_reps <span class="ot">&lt;-</span> <span class="dv">200</span></span>
 <span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>ensemble <span class="ot">&lt;-</span> <span class="fu">map</span>(<span class="fu">seq_len</span>(n_reps), <span class="cf">function</span>(i) {</span>
@@ -377,8 +400,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>n_extinct      <span class="ot">&lt;-</span> <span class="fu">sum</span>(final_sizes<span class="sc">$</span>outcome <span class="sc">==</span> <span class="st">"Extinction"</span>)</span>
 <span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>n_major        <span class="ot">&lt;-</span> n_reps <span class="sc">-</span> n_extinct</span>
 <span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>extinction_pct <span class="ot">&lt;-</span> n_extinct <span class="sc">/</span> n_reps <span class="sc">*</span> <span class="dv">100</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>plot_reps <span class="ot">&lt;-</span> <span class="fu">sample</span>(<span class="fu">unique</span>(ensemble<span class="sc">$</span>rep), <span class="dv">80</span>)</span>
 <span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>ensemble <span class="sc">%&gt;%</span></span>
@@ -394,6 +420,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Major epidemic"</span> <span class="ot">=</span> <span class="st">"#3C5488"</span>)) <span class="sc">+</span></span>
 <span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Day"</span>, <span class="at">y =</span> <span class="st">"Infectious count"</span>, <span class="at">color =</span> <span class="st">"Outcome"</span>) <span class="sc">+</span></span>
 <span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -404,6 +431,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>major_peaks <span class="ot">&lt;-</span> ensemble <span class="sc">%&gt;%</span></span>
 <span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(dplyr<span class="sc">::</span><span class="fu">select</span>(final_sizes, rep, outcome), <span class="at">by =</span> <span class="st">"rep"</span>) <span class="sc">%&gt;%</span></span>
 <span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(outcome <span class="sc">==</span> <span class="st">"Major epidemic"</span>) <span class="sc">%&gt;%</span></span>
@@ -412,6 +441,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>peak_I_med <span class="ot">&lt;-</span> <span class="fu">median</span>(major_peaks<span class="sc">$</span>peak_I)</span>
 <span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>peak_t_med <span class="ot">&lt;-</span> <span class="fu">median</span>(major_peaks<span class="sc">$</span>peak_t)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <p>Across 200 replicates: 62 extinctions (31%), 138 major epidemics (69%). Among major epidemics, median peak = 309 infectious at day 38 — nearly identical to the ODE’s 301 at day 38, which tells you the ODE is a reasonable description of what a major epidemic looks like when one occurs. What it can’t tell you is whether one occurs, and it’s wrong about that 31% of the time here.</p>
 </section>
@@ -419,6 +449,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="extinction-probability-as-a-function-of-r0">6. Extinction Probability as a Function of R0</h2>
 <p>The ODE says any R0 &gt; 1 produces an epidemic. The stochastic model says: with some probability, the chain dies before generating a self-sustaining outbreak. For a branching-process approximation valid near the origin, the extinction probability is 1/R0 when R0 &gt; 1 and 1 when R0 &lt;= 1.</p>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>R0_vals   <span class="ot">&lt;-</span> <span class="fu">seq</span>(<span class="fl">0.8</span>, <span class="fl">3.5</span>, <span class="at">by =</span> <span class="fl">0.15</span>)</span>
 <span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>n_ext_rep <span class="ot">&lt;-</span> <span class="dv">400</span></span>
 <span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -434,8 +466,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>    <span class="at">p_ext_approx =</span> <span class="fu">if_else</span>(r0 <span class="sc">&gt;</span> <span class="dv">1</span>, <span class="dv">1</span><span class="sc">/</span>r0, <span class="fl">1.0</span>)</span>
 <span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a>  )</span>
 <span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a>}) <span class="sc">|&gt;</span> <span class="fu">list_rbind</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a>ext_results <span class="sc">%&gt;%</span></span>
 <span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(<span class="at">x =</span> R0)) <span class="sc">+</span></span>
 <span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="fu">aes</span>(<span class="at">y =</span> p_extinction, <span class="at">color =</span> <span class="st">"Empirical (Gillespie)"</span>),</span>
@@ -449,6 +484,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb15-11"><a href="#cb15-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_y_continuous</span>(<span class="at">labels =</span> scales<span class="sc">::</span><span class="fu">percent_format</span>()) <span class="sc">+</span></span>
 <span id="cb15-12"><a href="#cb15-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"R0"</span>, <span class="at">y =</span> <span class="st">"P(extinction)"</span>, <span class="at">color =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
 <span id="cb15-13"><a href="#cb15-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -459,6 +495,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>ext_at_main_r0 <span class="ot">&lt;-</span> ext_results <span class="sc">%&gt;%</span></span>
 <span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="fu">abs</span>(R0 <span class="sc">-</span> <span class="fl">3.0</span>) <span class="sc">&lt;</span> <span class="fl">0.01</span>) <span class="sc">%&gt;%</span></span>
 <span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice</span>(<span class="dv">1</span>) <span class="sc">%&gt;%</span></span>
@@ -468,12 +506,15 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(<span class="fu">abs</span>(R0 <span class="sc">-</span> <span class="fl">1.5</span>) <span class="sc">&lt;</span> <span class="fl">0.1</span>) <span class="sc">%&gt;%</span></span>
 <span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">slice</span>(<span class="dv">1</span>) <span class="sc">%&gt;%</span></span>
 <span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pull</span>(p_extinction)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <p>At R0 = 3, the Gillespie simulations give an empirical extinction probability of roughly 33%, matching the branching-process prediction of 1/R0 = 33.3% closely — the approximation works well for this population size. At R0 = 1.5, extinction sits around 40-50% depending on the simulation run, which means close to half of all introductions die before generating detectable spread. The ODE reports an epidemic for both values; the stochastic model says that’s overconfident by a wide margin.</p>
 </section>
 <section id="final-size-distribution" class="level2">
 <h2 class="anchored" data-anchor-id="final-size-distribution">7. Final Size Distribution</h2>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>final_size_df <span class="ot">&lt;-</span> final_sizes <span class="sc">%&gt;%</span></span>
 <span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">attack_pct =</span> final_R <span class="sc">/</span> N <span class="sc">*</span> <span class="dv">100</span>)</span>
 <span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -481,8 +522,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(outcome <span class="sc">==</span> <span class="st">"Major epidemic"</span>) <span class="sc">%&gt;%</span></span>
 <span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">pull</span>(attack_pct) <span class="sc">%&gt;%</span></span>
 <span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">median</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(final_size_df, <span class="fu">aes</span>(<span class="at">x =</span> attack_pct, <span class="at">fill =</span> outcome)) <span class="sc">+</span></span>
 <span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_histogram</span>(<span class="at">bins =</span> <span class="dv">40</span>, <span class="at">color =</span> <span class="st">"white"</span>, <span class="at">alpha =</span> <span class="fl">0.85</span>) <span class="sc">+</span></span>
 <span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> attack_rate, <span class="at">linetype =</span> <span class="st">"dashed"</span>,</span>
@@ -495,6 +539,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Major epidemic"</span> <span class="ot">=</span> <span class="st">"#3C5488"</span>)) <span class="sc">+</span></span>
 <span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Attack rate (%)"</span>, <span class="at">y =</span> <span class="st">"Count"</span>, <span class="at">fill =</span> <span class="st">"Outcome"</span>) <span class="sc">+</span></span>
 <span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -510,6 +555,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="seir-extension-latent-period-dynamics">8. SEIR Extension: Latent Period Dynamics</h2>
 <p>Adding an exposed compartment (E) introduces a latent period. In the deterministic SEIR, this delays and smooths the curve without changing the final size. In the stochastic version, it also buffers against early extinction: exposed individuals cannot transmit but can still progress to infectious, keeping the chain alive when the infectious count transiently hits zero.</p>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>gillespie_seir <span class="ot">&lt;-</span> <span class="cf">function</span>(N, beta, sigma, gamma, <span class="at">I0 =</span> <span class="dv">1</span>, <span class="at">t_end =</span> <span class="dv">160</span>) {</span>
 <span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>  S <span class="ot">&lt;-</span> N <span class="sc">-</span> I0; E <span class="ot">&lt;-</span> <span class="dv">0</span>L; I <span class="ot">&lt;-</span> I0; R <span class="ot">&lt;-</span> <span class="dv">0</span>L</span>
 <span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>  t <span class="ot">&lt;-</span> <span class="fl">0.0</span></span>
@@ -540,8 +587,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb19-28"><a href="#cb19-28" aria-hidden="true" tabindex="-1"></a>  df <span class="ot">&lt;-</span> <span class="fu">as.data.frame</span>(out[<span class="fu">seq_len</span>(step), ])</span>
 <span id="cb19-29"><a href="#cb19-29" aria-hidden="true" tabindex="-1"></a>  <span class="fu">setNames</span>(df, <span class="fu">c</span>(<span class="st">"time"</span>,<span class="st">"S"</span>,<span class="st">"E"</span>,<span class="st">"I"</span>,<span class="st">"R"</span>))</span>
 <span id="cb19-30"><a href="#cb19-30" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a>seir_ode <span class="ot">&lt;-</span> <span class="cf">function</span>(t, state, parms) {</span>
 <span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>  S <span class="ot">&lt;-</span> state[<span class="st">"S"</span>]; E <span class="ot">&lt;-</span> state[<span class="st">"E"</span>]</span>
 <span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>  I <span class="ot">&lt;-</span> state[<span class="st">"I"</span>]; R <span class="ot">&lt;-</span> state[<span class="st">"R"</span>]</span>
@@ -563,8 +613,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb20-19"><a href="#cb20-19" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb20-20"><a href="#cb20-20" aria-hidden="true" tabindex="-1"></a>peak_I_seir_ode <span class="ot">&lt;-</span> <span class="fu">max</span>(ode_seir<span class="sc">$</span>I)</span>
 <span id="cb20-21"><a href="#cb20-21" aria-hidden="true" tabindex="-1"></a>peak_t_seir_ode <span class="ot">&lt;-</span> ode_seir<span class="sc">$</span>time[<span class="fu">which.max</span>(ode_seir<span class="sc">$</span>I)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>n_seir <span class="ot">&lt;-</span> <span class="dv">150</span></span>
 <span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>seir_ensemble <span class="ot">&lt;-</span> <span class="fu">map</span>(<span class="fu">seq_len</span>(n_seir), <span class="cf">function</span>(i) {</span>
@@ -579,8 +632,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">outcome =</span> <span class="fu">if_else</span>(final_R <span class="sc">&lt;</span> <span class="fl">0.1</span><span class="sc">*</span>N, <span class="st">"Extinction"</span>, <span class="st">"Major epidemic"</span>))</span>
 <span id="cb21-13"><a href="#cb21-13" aria-hidden="true" tabindex="-1"></a></span>
 <span id="cb21-14"><a href="#cb21-14" aria-hidden="true" tabindex="-1"></a>seir_ext_pct <span class="ot">&lt;-</span> <span class="fu">mean</span>(seir_final<span class="sc">$</span>outcome <span class="sc">==</span> <span class="st">"Extinction"</span>) <span class="sc">*</span> <span class="dv">100</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a>sir_sample <span class="ot">&lt;-</span> ensemble <span class="sc">%&gt;%</span></span>
 <span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">left_join</span>(dplyr<span class="sc">::</span><span class="fu">select</span>(final_sizes, rep, outcome), <span class="at">by =</span> <span class="st">"rep"</span>) <span class="sc">%&gt;%</span></span>
 <span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(outcome <span class="sc">==</span> <span class="st">"Major epidemic"</span>,</span>
@@ -606,6 +662,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb22-23"><a href="#cb22-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_color_manual</span>(<span class="at">values =</span> <span class="fu">c</span>(<span class="st">"SIR"</span> <span class="ot">=</span> <span class="st">"#E64B35"</span>, <span class="st">"SEIR"</span> <span class="ot">=</span> <span class="st">"#3C5488"</span>)) <span class="sc">+</span></span>
 <span id="cb22-24"><a href="#cb22-24" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Day"</span>, <span class="at">y =</span> <span class="st">"Infectious count"</span>, <span class="at">color =</span> <span class="st">"Model"</span>) <span class="sc">+</span></span>
 <span id="cb22-25"><a href="#cb22-25" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -621,6 +678,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <h2 class="anchored" data-anchor-id="convergence-to-the-deterministic-limit">9. Convergence to the Deterministic Limit</h2>
 <p>Stochastic epidemic theory guarantees that as N grows, the Gillespie SIR converges in distribution to the deterministic ODE. The rate of convergence is worth showing rather than asserting.</p>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a>N_vals    <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">100</span>, <span class="dv">500</span>, <span class="dv">2000</span>, <span class="dv">10000</span>)</span>
 <span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>n_cv_reps <span class="ot">&lt;-</span> <span class="dv">80</span></span>
 <span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a></span>
@@ -642,8 +701,11 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb23-19"><a href="#cb23-19" aria-hidden="true" tabindex="-1"></a>    <span class="at">sd_attack =</span> <span class="fu">round</span>(<span class="fu">sd</span>(final_R <span class="sc">/</span> N_val) <span class="sc">*</span> <span class="dv">100</span>, <span class="dv">2</span>),</span>
 <span id="cb23-20"><a href="#cb23-20" aria-hidden="true" tabindex="-1"></a>    <span class="at">.groups   =</span> <span class="st">"drop"</span></span>
 <span id="cb23-21"><a href="#cb23-21" aria-hidden="true" tabindex="-1"></a>  )</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 </div>
 <div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
 <div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>conv_results <span class="sc">%&gt;%</span></span>
 <span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">filter</span>(is_major) <span class="sc">%&gt;%</span></span>
 <span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(</span>
@@ -660,6 +722,7 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Attack rate (%)"</span>, <span class="at">y =</span> <span class="st">"Count"</span>) <span class="sc">+</span></span>
 <span id="cb24-15"><a href="#cb24-15" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>() <span class="sc">+</span></span>
 <span id="cb24-16"><a href="#cb24-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme</span>(<span class="at">legend.position =</span> <span class="st">"none"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
 <div class="cell-output-display">
 <div class="quarto-figure quarto-figure-center">
 <figure class="figure">
@@ -669,10 +732,45 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 </div>
 </div>
 </div>
+<div class="callout callout-style-default callout-important callout-titled" title="What this means in practice">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>What this means in practice
+</div>
+</div>
+<div class="callout-body-container callout-body">
 <p>At N = 100, attack rate SD across major epidemics is 3.73 percentage points. By N = 10,000 it is down to 0.42 points — the distribution has collapsed around the ODE’s 94.1% prediction. But at N = 2,000, SD is still 0.74 points wide, and that’s with 80 replicates; in practice the uncertainty in a single outbreak would look wider still. Schools, workplaces, care homes — the settings where early outbreak decisions matter most — sit in this range. Deterministic models applied there aren’t conservative; they’re reporting precision the underlying mathematics doesn’t support.</p>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip callout-titled" title="Run this yourself">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Run this yourself
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The same Gillespie-based SIR/SEIR engine — trajectories, R0, extinction probability, and final-size distributions, returned with a structured verdict table — is available as <code>simulate_gillespie_epidemic()</code> in <a href="https://github.com/Real-peekei/omicsuite"><code>omicsuite</code></a>.</p>
+</div>
+</div>
 </section>
 <section id="takeaways" class="level2">
 <h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled" title="Key findings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key findings
+</div>
+</div>
+<div class="callout-body-container callout-body">
 <ul>
 <li>The ODE SIR is not a conservative version of the stochastic process — it is a structurally different object that cannot produce extinction events, bimodal size distributions, or trajectory variability. These omissions are not numerical approximation errors; they are qualitative features the ODE is missing by construction.</li>
 <li>At R0 = 3, stochastic extinction occurred in 31% of simulated introductions from a single index case — matching the branching-process approximation of 1/R0 = 33%. Reporting “epidemic will occur” for any R0 &gt; 1 is wrong by this margin before any parameter uncertainty is considered.</li>
@@ -681,6 +779,8 @@ pre > code.sourceCode > span > a:first-child::before { text-decoration: underlin
 <li>Convergence to the ODE limit is real but slow. Stochastic variability remains meaningful at N = 2,000 for these parameters, which is the scale of many practical outbreak settings. Deterministic models used at this scale are not conservative simplifications — they are reporting false precision about quantities they cannot actually compute.</li>
 <li>The Gillespie algorithm is exact for continuous-time Markov chains with these rate structures. It is the right baseline to validate approximate stochastic methods (tau-leaping, moment closure, diffusion approximations) against when computational speed is needed.</li>
 </ul>
+</div>
+</div>
 <p>#Biostatistics #EpidemicModeling #StochasticProcesses #SIRModel #InfectiousDiseases #RStats #PublicHealth #Bioinformatics</p>
 
 
