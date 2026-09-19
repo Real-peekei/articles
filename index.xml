@@ -12,6 +12,2964 @@
 <generator>quarto-1.9.38</generator>
 <lastBuildDate>Sun, 13 Sep 2026 21:00:00 GMT</lastBuildDate>
 <item>
+  <title>Weighted Gene Co-Expression Network Analysis: Modules, Hub Genes, and Trait Drivers in Mammary Gland RNA-seq</title>
+  <dc:creator>Peekei </dc:creator>
+  <link>https://Real-peekei.github.io/articles/articles/gene-coexpression-wgcna-final.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<!--
+SETUP — run this once in RStudio before rendering (no new environment
+or kernel needed — this renders through R's native engine):
+
+  if (!requireNamespace("BiocManager", quietly = TRUE))
+      install.packages("BiocManager")
+  BiocManager::install(c("GEOquery", "DESeq2", "WGCNA", "org.Mm.eg.db"))
+  install.packages(c("tidyverse", "pheatmap", "ggrepel"))
+
+Render with the usual Render button, or:
+  quarto render gene-coexpression-wgcna-v1.qmd
+-->
+<section id="motivation" class="level2">
+<h2 class="anchored" data-anchor-id="motivation">1. Motivation</h2>
+<p>Differential expression analysis asks which genes change between conditions, one gene at a time. It’s a reasonable first question, but it throws away a structure that’s biologically real: genes don’t act alone, they act in coordinated groups — modules — that rise and fall together because they share regulation, participate in the same pathway, or respond to the same upstream signal. Weighted Gene Co-Expression Network Analysis (WGCNA) builds a network directly from expression correlation, groups genes into modules based on that network structure rather than on any prior pathway annotation, and then asks which modules — not which individual genes — track a clinical or biological trait of interest. The genes at the center of a trait-correlated module, the hub genes, are the strongest computational candidates for being actual drivers of that trait rather than downstream bystanders.</p>
+<p>This piece builds the full WGCNA pipeline on a real RNA-seq dataset from NCBI GEO: soft-thresholding power selection (the step that turns a simple correlation matrix into a genuinely <em>weighted</em> network, and the step most public explanations of WGCNA skip past too quickly), module detection, module-trait correlation across a multi-factor experimental design, and hub gene identification within the module most strongly tied to a trait of interest.</p>
+</section>
+<section id="data-acquisition" class="level2">
+<h2 class="anchored" data-anchor-id="data-acquisition">2. Data Acquisition</h2>
+<p>The dataset is GSE60450 — RNA-seq of mouse mammary epithelial cells, sorted into basal and luminal populations across three developmental stages (virgin, pregnant, lactating). That 2×3 design gives multiple genuine biological traits to correlate against modules, rather than a single binary group.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Reference only — the R chunk below performs the actual download with</span></span>
+<span id="cb1-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># validation and a discovery step, since GEO series package expression</span></span>
+<span id="cb1-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># data inconsistently (sometimes in the series matrix, more often as a</span></span>
+<span id="cb1-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># separate supplementary file with a submission-specific filename).</span></span>
+<span id="cb1-5"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Shown here for the bash-automation step the brief calls for.</span></span>
+<span id="cb1-6"></span>
+<span id="cb1-7"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mkdir</span> <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">-p</span> geo_data</span>
+<span id="cb1-8"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">curl</span> <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">-o</span> geo_data/GSE60450_series_matrix.txt.gz <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb1-9">  <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"https://ftp.ncbi.nlm.nih.gov/geo/series/GSE60nnn/GSE60450/matrix/GSE60450_series_matrix.txt.gz"</span></span>
+<span id="cb1-10"><span class="ex" style="color: null;
+background-color: null;
+font-style: inherit;">curl</span> <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">-o</span> geo_data/GSE60450_supp.tar <span class="dt" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">\</span></span>
+<span id="cb1-11">  <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"https://ftp.ncbi.nlm.nih.gov/geo/series/GSE60nnn/GSE60450/suppl/GSE60450_RAW.tar"</span></span></code></pre></div></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1">GEO_ACCESSION <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"GSE60450"</span></span>
+<span id="cb2-2">DATA_DIR <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"geo_data"</span></span>
+<span id="cb2-3"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">dir.create</span>(DATA_DIR, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">showWarnings =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>)</span>
+<span id="cb2-4"></span>
+<span id="cb2-5">download_with_retry <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(fetch_fn, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">attempts =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">delay =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5</span>) {</span>
+<span id="cb2-6">  <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> (attempt <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq_len</span>(attempts)) {</span>
+<span id="cb2-7">    result <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tryCatch</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">fetch_fn</span>(), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">error =</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(e) {</span>
+<span id="cb2-8">      <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">message</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sprintf</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"  Attempt %d/%d failed: %s"</span>, attempt, attempts, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">conditionMessage</span>(e)))</span>
+<span id="cb2-9">      <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NULL</span></span>
+<span id="cb2-10">    })</span>
+<span id="cb2-11">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">!</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.null</span>(result)) <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">return</span>(result)</span>
+<span id="cb2-12">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (attempt <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> attempts) <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">Sys.sleep</span>(delay)</span>
+<span id="cb2-13">  }</span>
+<span id="cb2-14">  <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NULL</span></span>
+<span id="cb2-15">}</span>
+<span id="cb2-16"></span>
+<span id="cb2-17">gse <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">download_with_retry</span>(<span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>() {</span>
+<span id="cb2-18">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">getGEO</span>(GEO_ACCESSION, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">GSEMatrix =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">destdir =</span> DATA_DIR)</span>
+<span id="cb2-19">})</span>
+<span id="cb2-20"></span>
+<span id="cb2-21"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.null</span>(gse)) {</span>
+<span id="cb2-22">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">stop</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(</span>
+<span id="cb2-23">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">Could not download series metadata after multiple attempts — "</span>,</span>
+<span id="cb2-24">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"this usually means a network issue rather than a code problem.</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>,</span>
+<span id="cb2-25">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Manual fallback: open https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc="</span>,</span>
+<span id="cb2-26">    GEO_ACCESSION, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" in a browser, download the series matrix file, and "</span>,</span>
+<span id="cb2-27">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"place it in the '"</span>, DATA_DIR, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"' folder, then re-render."</span></span>
+<span id="cb2-28">  ))</span>
+<span id="cb2-29">}</span>
+<span id="cb2-30"></span>
+<span id="cb2-31">pheno_data <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pData</span>(gse[[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]])</span>
+<span id="cb2-32"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Phenotype table dimensions:"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">dim</span>(pheno_data)[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>], <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"samples x"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">dim</span>(pheno_data)[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>], <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"fields</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Phenotype table dimensions: 12 samples x 57 fields</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Column names:</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Column names:</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">print</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(pheno_data))</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code> [1] "title"                   "geo_accession"          
+ [3] "status"                  "submission_date"        
+ [5] "last_update_date"        "type"                   
+ [7] "channel_count"           "source_name_ch1"        
+ [9] "organism_ch1"            "characteristics_ch1"    
+[11] "characteristics_ch1.1"   "characteristics_ch1.2"  
+[13] "characteristics_ch1.3"   "characteristics_ch1.4"  
+[15] "characteristics_ch1.5"   "treatment_protocol_ch1" 
+[17] "growth_protocol_ch1"     "molecule_ch1"           
+[19] "extract_protocol_ch1"    "extract_protocol_ch1.1" 
+[21] "taxid_ch1"               "description"            
+[23] "description.1"           "description.2"          
+[25] "data_processing"         "data_processing.1"      
+[27] "data_processing.2"       "data_processing.3"      
+[29] "data_processing.4"       "platform_id"            
+[31] "contact_name"            "contact_email"          
+[33] "contact_phone"           "contact_fax"            
+[35] "contact_laboratory"      "contact_department"     
+[37] "contact_institute"       "contact_address"        
+[39] "contact_city"            "contact_state"          
+[41] "contact_zip/postal_code" "contact_country"        
+[43] "contact_web_link"        "data_row_count"         
+[45] "instrument_model"        "library_selection"      
+[47] "library_source"          "library_strategy"       
+[49] "relation"                "relation.1"             
+[51] "supplementary_file_1"    "developmental stage:ch1"
+[53] "gender:ch1"              "genotype/variation:ch1" 
+[55] "immunophenotype:ch1"     "strain/background:ch1"  
+[57] "tissue:ch1"             </code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Print the actual characteristics columns so trait parsing below can be</span></span>
+<span id="cb8-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># verified against what's really in this series, rather than assumed.</span></span>
+<span id="cb8-3">char_cols <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(pheno_data)[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">grepl</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"characteristics"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(pheno_data), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ignore.case =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>)]</span>
+<span id="cb8-4">pheno_data[, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"title"</span>, char_cols)]</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>                        title      characteristics_ch1
+GSM1480291  Luminal virgin #1 strain/background: FVB/N
+GSM1480292  Luminal virgin #2 strain/background: FVB/N
+GSM1480293 Luminal 18.5 dP #1 strain/background: FVB/N
+GSM1480294 Luminal 18.5 dP #2 strain/background: FVB/N
+GSM1480295    Luminal 2 dL #1 strain/background: FVB/N
+GSM1480296    Luminal 2 dL #2 strain/background: FVB/N
+GSM1480297    Basal virgin #1 strain/background: FVB/N
+GSM1480298    Basal virgin #2 strain/background: FVB/N
+GSM1480299   Basal 18.5 dP #1 strain/background: FVB/N
+GSM1480300   Basal 18.5 dP #2 strain/background: FVB/N
+GSM1480301      Basal 2 dL #1 strain/background: FVB/N
+GSM1480302      Basal 2 dL #2 strain/background: FVB/N
+                   characteristics_ch1.1 characteristics_ch1.2
+GSM1480291 genotype/variation: wild type        gender: female
+GSM1480292 genotype/variation: wild type        gender: female
+GSM1480293 genotype/variation: wild type        gender: female
+GSM1480294 genotype/variation: wild type        gender: female
+GSM1480295 genotype/variation: wild type        gender: female
+GSM1480296 genotype/variation: wild type        gender: female
+GSM1480297 genotype/variation: wild type        gender: female
+GSM1480298 genotype/variation: wild type        gender: female
+GSM1480299 genotype/variation: wild type        gender: female
+GSM1480300 genotype/variation: wild type        gender: female
+GSM1480301 genotype/variation: wild type        gender: female
+GSM1480302 genotype/variation: wild type        gender: female
+                 characteristics_ch1.3                    characteristics_ch1.4
+GSM1480291 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480292 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480293 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480294 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480295 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480296 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480297 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480298 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480299 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480300 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480301 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480302 tissue: mouse mammary gland   immunophenotype: basal cell population
+                             characteristics_ch1.5
+GSM1480291             developmental stage: virgin
+GSM1480292             developmental stage: virgin
+GSM1480293 developmental stage: 18.5 day pregnancy
+GSM1480294 developmental stage: 18.5 day pregnancy
+GSM1480295    developmental stage: 2 day lactation
+GSM1480296    developmental stage: 2 day lactation
+GSM1480297             developmental stage: virgin
+GSM1480298             developmental stage: virgin
+GSM1480299 developmental stage: 18.5 day pregnancy
+GSM1480300 developmental stage: 18.5 day pregnancy
+GSM1480301    developmental stage: 2 day lactation
+GSM1480302    developmental stage: 2 day lactation</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1">supp_files <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">download_with_retry</span>(<span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>() {</span>
+<span id="cb10-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">getGEOSuppFiles</span>(GEO_ACCESSION, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">baseDir =</span> DATA_DIR, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">makeDirectory =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>)</span>
+<span id="cb10-3">})</span>
+<span id="cb10-4"></span>
+<span id="cb10-5"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.null</span>(supp_files)) {</span>
+<span id="cb10-6">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">stop</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(</span>
+<span id="cb10-7">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">Could not download the supplementary counts file after multiple "</span>,</span>
+<span id="cb10-8">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"attempts. Manual fallback: download the supplementary files from</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>,</span>
+<span id="cb10-9">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc="</span>, GEO_ACCESSION,</span>
+<span id="cb10-10">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" (Supplementary file section), place them under '"</span>, DATA_DIR,</span>
+<span id="cb10-11">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"/"</span>, GEO_ACCESSION, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"/', and re-render."</span></span>
+<span id="cb10-12">  ))</span>
+<span id="cb10-13">}</span>
+<span id="cb10-14"></span>
+<span id="cb10-15">supp_dir <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">file.path</span>(DATA_DIR, GEO_ACCESSION)</span>
+<span id="cb10-16">downloaded_files <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">list.files</span>(supp_dir, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">full.names =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">recursive =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>)</span>
+<span id="cb10-17"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Files downloaded:</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Files downloaded:</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">print</span>(downloaded_files)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] "geo_data/GSE60450/GSE60450_Lactation-GenewiseCounts.txt.gz"
+[2] "geo_data/GSE60450/GSE60450_RAW.tar"                        </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Discover the counts file rather than assuming an exact filename —</span></span>
+<span id="cb14-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># GEO submissions name these files inconsistently across series.</span></span>
+<span id="cb14-3">counts_candidates <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> downloaded_files[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">grepl</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"count"</span>, downloaded_files, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ignore.case =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>)]</span>
+<span id="cb14-4"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(counts_candidates) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>) {</span>
+<span id="cb14-5">  <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># fall back to the largest file, which is usually the full counts table</span></span>
+<span id="cb14-6">  counts_candidates <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> downloaded_files[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">which.max</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">file.size</span>(downloaded_files))]</span>
+<span id="cb14-7">}</span>
+<span id="cb14-8">counts_file <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> counts_candidates[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]</span>
+<span id="cb14-9"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">Using as counts file:"</span>, counts_file, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Using as counts file: geo_data/GSE60450/GSE60450_Lactation-GenewiseCounts.txt.gz </code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1">raw_counts_full <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">read.delim</span>(counts_file, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">header =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">row.names =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">check.names =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>)</span>
+<span id="cb16-2"></span>
+<span id="cb16-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># featureCounts-style output (which this "GenewiseCounts" file is) puts a</span></span>
+<span id="cb16-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># gene-length annotation column first, before any actual sample columns —</span></span>
+<span id="cb16-5"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># that's metadata, not a 13th sample, and including it as one would</span></span>
+<span id="cb16-6"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># corrupt every downstream step silently.</span></span>
+<span id="cb16-7">length_col <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">which</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tolower</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(raw_counts_full)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"length"</span>)</span>
+<span id="cb16-8"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(length_col) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) {</span>
+<span id="cb16-9">  gene_lengths <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> raw_counts_full[[length_col]]</span>
+<span id="cb16-10">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">names</span>(gene_lengths) <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rownames</span>(raw_counts_full)</span>
+<span id="cb16-11">  raw_counts <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> raw_counts_full[, <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span>length_col, drop <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>]</span>
+<span id="cb16-12">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Removed a 'Length' annotation column — it's gene length, not a sample.</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb16-13">} <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> {</span>
+<span id="cb16-14">  raw_counts <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> raw_counts_full</span>
+<span id="cb16-15">}</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Removed a 'Length' annotation column — it's gene length, not a sample.</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Counts matrix dimensions:"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">dim</span>(raw_counts)[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>], <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"genes x"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">dim</span>(raw_counts)[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>], <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"sample columns</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Counts matrix dimensions: 27179 genes x 12 sample columns</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">head</span>(raw_counts[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">min</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ncol</span>(raw_counts))])</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>          MCL1-DG_BC2CTUACXX_ACTTGA_L002_R1 MCL1-DH_BC2CTUACXX_CAGATC_L002_R1
+497097                                  438                               300
+100503874                                 1                                 0
+100038431                                 0                                 0
+19888                                     1                                 1
+20671                                   106                               182
+27395                                   309                               234
+          MCL1-DI_BC2CTUACXX_ACAGTG_L002_R1 MCL1-DJ_BC2CTUACXX_CGATGT_L002_R1
+497097                                   65                               237
+100503874                                 1                                 1
+100038431                                 0                                 0
+19888                                     0                                 0
+20671                                    82                               105
+27395                                   337                               300
+          MCL1-DK_BC2CTUACXX_TTAGGC_L002_R1 MCL1-DL_BC2CTUACXX_ATCACG_L002_R1
+497097                                  354                               287
+100503874                                 0                                 4
+100038431                                 0                                 0
+19888                                     0                                 0
+20671                                    43                                82
+27395                                   290                               270</code></pre>
+</div>
+</div>
+</section>
+<section id="preprocessing-normalisation-and-sample-qc" class="level2">
+<h2 class="anchored" data-anchor-id="preprocessing-normalisation-and-sample-qc">3. Preprocessing, Normalisation, and Sample QC</h2>
+<p>Raw counts aren’t suitable for correlation-based network construction directly — count variance scales with mean expression level, which would let highly-expressed genes dominate the network purely as an artefact of their expression magnitude rather than genuine co-regulation. A variance-stabilising transformation (VST) removes that mean-variance relationship before anything else happens.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Match counts columns to phenotype rows. GEO count matrices are commonly</span></span>
+<span id="cb22-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># indexed by a submitter-defined sample/library name rather than by GSM</span></span>
+<span id="cb22-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># accession, while pData()'s rownames are always GSM accessions — so a</span></span>
+<span id="cb22-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># direct rownames match often fails even when the data lines up perfectly</span></span>
+<span id="cb22-5"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># well once the right identifier is used. Try several strategies in order</span></span>
+<span id="cb22-6"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># rather than assuming the first one works.</span></span>
+<span id="cb22-7"></span>
+<span id="cb22-8">count_samples <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(raw_counts)</span>
+<span id="cb22-9">pheno_samples <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rownames</span>(pheno_data)</span>
+<span id="cb22-10"></span>
+<span id="cb22-11">normalize_id <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(x) <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">gsub</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"[^A-Za-z0-9]"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">""</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tolower</span>(x))</span>
+<span id="cb22-12"></span>
+<span id="cb22-13">pheno_matched <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NULL</span></span>
+<span id="cb22-14"></span>
+<span id="cb22-15"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Strategy 1: direct match to GSM accessions (pheno_data rownames)</span></span>
+<span id="cb22-16">matched_by_gsm <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">intersect</span>(count_samples, pheno_samples)</span>
+<span id="cb22-17"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(matched_by_gsm) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(count_samples)) {</span>
+<span id="cb22-18">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Matched all"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(count_samples), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"samples directly by GSM accession.</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb22-19">  pheno_matched <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> pheno_data[count_samples, , drop <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>]</span>
+<span id="cb22-20">}</span>
+<span id="cb22-21"></span>
+<span id="cb22-22"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Strategy 2: match to the 'title' column (common when count files use</span></span>
+<span id="cb22-23"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># submitter-defined library names instead of GSM IDs)</span></span>
+<span id="cb22-24"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.null</span>(pheno_matched) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;&amp;</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"title"</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%in%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(pheno_data)) {</span>
+<span id="cb22-25">  title_match_idx <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">match</span>(count_samples, pheno_data<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>title)</span>
+<span id="cb22-26">  <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">all</span>(<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">!</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.na</span>(title_match_idx))) {</span>
+<span id="cb22-27">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Matched all"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(count_samples), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"samples via the 'title' field.</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb22-28">    pheno_matched <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> pheno_data[title_match_idx, , drop <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>]</span>
+<span id="cb22-29">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rownames</span>(pheno_matched) <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> count_samples</span>
+<span id="cb22-30">  }</span>
+<span id="cb22-31">}</span>
+<span id="cb22-32"></span>
+<span id="cb22-33"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Strategy 3: same as above, but normalising punctuation first (handles</span></span>
+<span id="cb22-34"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># mismatches like "MCL1-DG" in one identifier system vs "MCL1.DG" in another)</span></span>
+<span id="cb22-35"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.null</span>(pheno_matched) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;&amp;</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"title"</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%in%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(pheno_data)) {</span>
+<span id="cb22-36">  norm_counts <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">normalize_id</span>(count_samples)</span>
+<span id="cb22-37">  norm_titles <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">normalize_id</span>(pheno_data<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>title)</span>
+<span id="cb22-38">  norm_match_idx <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">match</span>(norm_counts, norm_titles)</span>
+<span id="cb22-39">  <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">all</span>(<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">!</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.na</span>(norm_match_idx))) {</span>
+<span id="cb22-40">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Matched all"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(count_samples), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"samples via normalised 'title' field"</span>,</span>
+<span id="cb22-41">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"(punctuation differences reconciled).</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb22-42">    pheno_matched <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> pheno_data[norm_match_idx, , drop <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>]</span>
+<span id="cb22-43">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rownames</span>(pheno_matched) <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> count_samples</span>
+<span id="cb22-44">  }</span>
+<span id="cb22-45">}</span>
+<span id="cb22-46"></span>
+<span id="cb22-47"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Strategy 4: the count columns may be named by sequencing library code</span></span>
+<span id="cb22-48"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># (e.g. "MCL1-DG") rather than anything resembling the phenotype 'title'</span></span>
+<span id="cb22-49"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># field at all — these are simply two different naming systems with no</span></span>
+<span id="cb22-50"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># textual overlap, not a punctuation mismatch. GEO sequencing submissions</span></span>
+<span id="cb22-51"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># typically still carry the original library code somewhere else in the</span></span>
+<span id="cb22-52"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># metadata (supplementary file name, description, or relation field), so</span></span>
+<span id="cb22-53"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># search those instead of assuming 'title' is the bridge.</span></span>
+<span id="cb22-54"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.null</span>(pheno_matched)) {</span>
+<span id="cb22-55">  library_code <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sub</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"_.*$"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">""</span>, count_samples)  <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># e.g. "MCL1-DG_BC2..." -&gt; "MCL1-DG"</span></span>
+<span id="cb22-56"></span>
+<span id="cb22-57">  candidate_fields <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">intersect</span>(</span>
+<span id="cb22-58">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"supplementary_file_1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"description"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"description.1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"description.2"</span>,</span>
+<span id="cb22-59">      <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relation"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"relation.1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"title"</span>),</span>
+<span id="cb22-60">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(pheno_data)</span>
+<span id="cb22-61">  )</span>
+<span id="cb22-62"></span>
+<span id="cb22-63">  find_match_row <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(code) {</span>
+<span id="cb22-64">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> (field <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> candidate_fields) {</span>
+<span id="cb22-65">      hit <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">which</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">grepl</span>(code, pheno_data[[field]], <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">fixed =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>))</span>
+<span id="cb22-66">      <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(hit) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>) <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">return</span>(hit)</span>
+<span id="cb22-67">    }</span>
+<span id="cb22-68">    <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NA_integer_</span></span>
+<span id="cb22-69">  }</span>
+<span id="cb22-70"></span>
+<span id="cb22-71">  code_match_idx <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sapply</span>(library_code, find_match_row)</span>
+<span id="cb22-72"></span>
+<span id="cb22-73">  <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">all</span>(<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">!</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.na</span>(code_match_idx))) {</span>
+<span id="cb22-74">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Matched all"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(count_samples), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"samples via a library code found in:"</span>,</span>
+<span id="cb22-75">        <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste</span>(candidate_fields, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">collapse =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">", "</span>), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb22-76">    pheno_matched <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> pheno_data[code_match_idx, , drop <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>]</span>
+<span id="cb22-77">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rownames</span>(pheno_matched) <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> count_samples</span>
+<span id="cb22-78">  } <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> {</span>
+<span id="cb22-79">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Library-code search matched"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sum</span>(<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">!</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.na</span>(code_match_idx)), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"of"</span>,</span>
+<span id="cb22-80">        <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(count_samples), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"samples. Printing the actual content of"</span>,</span>
+<span id="cb22-81">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"each candidate metadata field below so the real bridging field"</span>,</span>
+<span id="cb22-82">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"(if any) is visible for the next fix.</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb22-83">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> (field <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> candidate_fields) {</span>
+<span id="cb22-84">      <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"--"</span>, field, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"--</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb22-85">      <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">print</span>(pheno_data[[field]])</span>
+<span id="cb22-86">      <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb22-87">    }</span>
+<span id="cb22-88">  }</span>
+<span id="cb22-89">}</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Matched all 12 samples via a library code found in: supplementary_file_1, description, description.1, description.2, relation, relation.1, title </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.null</span>(pheno_matched)) {</span>
+<span id="cb24-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">Could not achieve a complete match with any strategy tried.</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb24-3">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Count matrix columns: "</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste</span>(count_samples, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">collapse =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">", "</span>), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb24-4">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Phenotype GSM rownames:"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste</span>(pheno_samples, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">collapse =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">", "</span>), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb24-5">  <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"title"</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%in%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(pheno_data)) {</span>
+<span id="cb24-6">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Phenotype 'title' field: "</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste</span>(pheno_data<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>title, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">collapse =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">", "</span>), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb24-7">  }</span>
+<span id="cb24-8">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">stop</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(</span>
+<span id="cb24-9">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">Sample identifiers between the counts file and the phenotype table "</span>,</span>
+<span id="cb24-10">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"don't line up under any of the matching strategies tried above. "</span>,</span>
+<span id="cb24-11">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Compare the printed field contents above and adjust the matching "</span>,</span>
+<span id="cb24-12">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"logic in this chunk to whichever field actually corresponds."</span></span>
+<span id="cb24-13">  ))</span>
+<span id="cb24-14">}</span></code></pre></div></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Keep genes with a minimum count in a reasonable fraction of samples</span></span>
+<span id="cb25-2">keep_genes <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rowSums</span>(raw_counts <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;=</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;=</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ncol</span>(raw_counts) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.3</span>)</span>
+<span id="cb25-3">filtered_counts <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> raw_counts[keep_genes, ]</span>
+<span id="cb25-4"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Genes retained after low-count filtering:"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">nrow</span>(filtered_counts), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"of"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">nrow</span>(raw_counts), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Genes retained after low-count filtering: 15185 of 27179 </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># pheno_matched (from the previous chunk) already has rownames guaranteed</span></span>
+<span id="cb27-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># to exactly equal colnames(filtered_counts) — filtering only drops genes</span></span>
+<span id="cb27-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># (rows), not samples (columns), so the sample alignment carries over</span></span>
+<span id="cb27-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># unchanged.</span></span>
+<span id="cb27-5">pheno_aligned <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> pheno_matched[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(filtered_counts), , drop <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">=</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>]</span>
+<span id="cb27-6"></span>
+<span id="cb27-7">dds <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">DESeqDataSetFromMatrix</span>(</span>
+<span id="cb27-8">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">countData =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>(filtered_counts),</span>
+<span id="cb27-9">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">colData   =</span> pheno_aligned,</span>
+<span id="cb27-10">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">design    =</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span></span>
+<span id="cb27-11">)</span>
+<span id="cb27-12">vst_data <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">assay</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">vst</span>(dds, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">blind =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>))</span></code></pre></div></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1">sample_tree <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">hclust</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">dist</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">t</span>(vst_data)), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">method =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"average"</span>)</span>
+<span id="cb28-2"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">plot</span>(sample_tree, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">main =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Sample clustering (VST-normalised expression)"</span>,</span>
+<span id="cb28-3">     <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">xlab =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">""</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">sub =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">""</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">cex =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.8</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/gene-coexpression-wgcna-final_files/figure-html/sample-clustering-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Hierarchical clustering of samples by expression similarity — a standard WGCNA QC step to catch outlier arrays before network construction</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Any sample splitting off far from the rest of the dendrogram at this stage would be a candidate for exclusion before network construction — a single technical outlier can distort a co-expression network more than a handful of biological replicates can, since the network is built from correlations across all samples simultaneously. Whether that’s the case here is worth reading directly from the plot rather than assumed.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1">gene_variance <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">apply</span>(vst_data, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, var)</span>
+<span id="cb29-2">n_top_genes <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">min</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5000</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">nrow</span>(vst_data))</span>
+<span id="cb29-3">top_genes <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">names</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sort</span>(gene_variance, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">decreasing =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>))[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:</span>n_top_genes]</span>
+<span id="cb29-4">expr_matrix <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">t</span>(vst_data[top_genes, ])  <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># WGCNA wants samples as rows</span></span>
+<span id="cb29-5"></span>
+<span id="cb29-6"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Proceeding with the top"</span>, n_top_genes, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"most variable genes for network construction.</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Proceeding with the top 5000 most variable genes for network construction.</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Expression matrix for WGCNA:"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">nrow</span>(expr_matrix), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"samples x"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ncol</span>(expr_matrix), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"genes</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Expression matrix for WGCNA: 12 samples x 5000 genes</code></pre>
+</div>
+</div>
+<p>Restricting to the most variable genes is standard WGCNA practice, not a corner cut — genes with near-constant expression across all samples contribute noise to the correlation structure without contributing information, and including all of them would only slow network construction without improving module quality.</p>
+</section>
+<section id="soft-thresholding-power-selection" class="level2">
+<h2 class="anchored" data-anchor-id="soft-thresholding-power-selection">4. Soft-Thresholding Power Selection</h2>
+<p>A plain correlation matrix treats a correlation of 0.99 and a correlation of 0.5 as different in degree but identical in kind — both are just “positive correlation.” WGCNA’s central idea is to raise correlations to a soft-thresholding power <img src="https://latex.codecogs.com/png.latex?%5Cbeta">, which disproportionately suppresses weak correlations relative to strong ones, so the resulting network approximates the scale-free topology real biological networks are known to exhibit (a small number of highly-connected hub genes, a large number of sparsely-connected genes). Choosing <img src="https://latex.codecogs.com/png.latex?%5Cbeta"> isn’t arbitrary — it’s chosen as the smallest power that achieves a reasonable scale-free topology fit, and that has to be checked against the data, not assumed.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1">powers <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">:</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">seq</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">12</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">20</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>))</span>
+<span id="cb33-2">sft <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">pickSoftThreshold</span>(expr_matrix, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">powerVector =</span> powers, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">verbose =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">networkType =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"signed"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>   Power SFT.R.sq   slope truncated.R.sq mean.k. median.k. max.k.
+1      1 0.000142  0.1080         0.9250    2610      2860   3010
+2      2 0.094200  1.2500        -0.0574    2000      2120   2620
+3      3 0.274000  1.1000         0.0731    1700      1700   2420
+4      4 0.400000  0.8480         0.2480    1490      1400   2270
+5      5 0.448000  0.6170         0.3070    1330      1210   2140
+6      6 0.423000  0.4370         0.2690    1210      1110   2030
+7      7 0.341000  0.3080         0.1680    1100      1020   1940
+8      8 0.221000  0.2020         0.0177    1010       937   1850
+9      9 0.086400  0.1120        -0.1470     937       870   1780
+10    10 0.009440  0.0351        -0.2370     870       805   1710
+11    12 0.070100 -0.0911        -0.1130     758       697   1580
+12    14 0.269000 -0.1850         0.1860     668       609   1470
+13    16 0.462000 -0.2630         0.4520     595       538   1380
+14    18 0.582000 -0.3330         0.6270     534       477   1300
+15    20 0.660000 -0.3930         0.7270     482       426   1220</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1">sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>   Power     SFT.R.sq       slope truncated.R.sq   mean.k. median.k.   max.k.
+1      1 0.0001416365  0.10830215     0.92481262 2605.3444 2860.7232 3008.913
+2      2 0.0942215777  1.24948782    -0.05742960 2001.9116 2117.2963 2617.029
+3      3 0.2743971071  1.09566815     0.07314710 1697.1188 1695.3173 2415.883
+4      4 0.3998125328  0.84834234     0.24772016 1490.9993 1396.8414 2265.780
+5      5 0.4483492242  0.61668206     0.30669129 1334.2011 1213.7682 2141.847
+6      6 0.4228394478  0.43746604     0.26890037 1208.0001 1106.8730 2034.583
+7      7 0.3410634031  0.30761172     0.16843680 1103.0653 1017.3151 1939.632
+8      8 0.2205656271  0.20204441     0.01774625 1013.9140  937.0411 1854.370
+9      9 0.0864296090  0.11234848    -0.14697399  936.9800  869.5942 1777.026
+10    10 0.0094401849  0.03507901    -0.23744449  869.7848  804.6348 1706.315
+11    12 0.0700580468 -0.09111523    -0.11349897  757.8391  697.3734 1581.109
+12    14 0.2694459335 -0.18536303     0.18594735  668.2167  609.1265 1473.147
+13    16 0.4623514530 -0.26309061     0.45201576  594.8425  538.2744 1378.705
+14    18 0.5820742233 -0.33323667     0.62689669  533.7127  477.0941 1295.257
+15    20 0.6604888185 -0.39269656     0.72682175  482.0592  425.6919 1221.994</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">par</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">mfrow =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>))</span>
+<span id="cb37-2"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">plot</span>(sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>], <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sign</span>(sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>]) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>],</span>
+<span id="cb37-3">     <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">xlab =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Soft threshold power"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ylab =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Scale-free topology fit (signed R^2)"</span>,</span>
+<span id="cb37-4">     <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">main =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Scale-free fit"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">type =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"n"</span>)</span>
+<span id="cb37-5"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">text</span>(sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>], <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sign</span>(sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>]) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>],</span>
+<span id="cb37-6">     <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">labels =</span> powers, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">col =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">cex =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.9</span>)</span>
+<span id="cb37-7"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abline</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">h =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.85</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">col =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">lty =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>)</span>
+<span id="cb37-8"></span>
+<span id="cb37-9"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">plot</span>(sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>], sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5</span>],</span>
+<span id="cb37-10">     <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">xlab =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Soft threshold power"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ylab =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Mean connectivity"</span>,</span>
+<span id="cb37-11">     <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">main =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Mean connectivity"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">type =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"n"</span>)</span>
+<span id="cb37-12"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">text</span>(sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>], sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices[, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5</span>],</span>
+<span id="cb37-13">     <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">labels =</span> powers, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">col =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">cex =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.9</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/gene-coexpression-wgcna-final_files/figure-html/soft-threshold-plot-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Scale-free topology model fit (left) and mean connectivity (right) across candidate soft-thresholding powers</figcaption>
+</figure>
+</div>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb38" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">par</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">mfrow =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">c</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>))</span></code></pre></div></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1">chosen_power <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>powerEstimate</span>
+<span id="cb39-2"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.na</span>(chosen_power)) {</span>
+<span id="cb39-3">  <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Fall back to the lowest power clearing an R^2 of 0.80 if the automatic</span></span>
+<span id="cb39-4">  <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># 0.90 threshold wasn't reached by any tested power</span></span>
+<span id="cb39-5">  candidates <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>Power[</span>
+<span id="cb39-6">    <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sign</span>(sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>slope) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> sft<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>fitIndices<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>SFT.R.sq <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.80</span></span>
+<span id="cb39-7">  ]</span>
+<span id="cb39-8">  chosen_power <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(candidates) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>) <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">min</span>(candidates) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6</span></span>
+<span id="cb39-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Automatic power estimate unavailable — using fallback power:"</span>, chosen_power, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb39-10">} <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> {</span>
+<span id="cb39-11">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Selected soft-thresholding power:"</span>, chosen_power, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb39-12">}</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Automatic power estimate unavailable — using fallback power: 6 </code></pre>
+</div>
+</div>
+<div class="callout callout-style-default callout-important callout-titled" title="This dataset never reaches a strong scale-free fit — worth saying plainly">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>This dataset never reaches a strong scale-free fit — worth saying plainly
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Across every power tested (1 through 20), the signed R² for scale-free topology fit peaked around 0.66 and never approached the 0.80-0.90 range WGCNA’s own documentation treats as a good fit. The automatic power estimate came back unavailable as a direct consequence, and the fallback used here (power = 6, a commonly-used default in the WGCNA literature for signed networks) is a reasonable default given the circumstances, not a criterion the data actually satisfied. The most likely explanation is sample size: this series has only 12 samples, and WGCNA’s scale-free topology assumption is asymptotic — it’s expected to hold better with larger sample sizes, and a weaker fit at n = 12 is a known, common limitation rather than a sign of a broken analysis. The modules detected below should be read with that caveat attached: they’re real co-expression structure in this dataset, but the network they’re built from is somewhat less well-justified than WGCNA’s own guidance calls for.</p>
+</div>
+</div>
+</section>
+<section id="network-construction-and-module-detection" class="level2">
+<h2 class="anchored" data-anchor-id="network-construction-and-module-detection">5. Network Construction and Module Detection</h2>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1">adjacency_matrix <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">adjacency</span>(expr_matrix, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">power =</span> chosen_power, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">type =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"signed"</span>)</span>
+<span id="cb41-2">TOM <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">TOMsimilarity</span>(adjacency_matrix, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">TOMType =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"signed"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>..connectivity..
+..matrix multiplication (system BLAS)..
+..normalization..
+..done.</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1">dissTOM <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span> <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> TOM</span>
+<span id="cb43-2">gene_tree <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">hclust</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.dist</span>(dissTOM), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">method =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"average"</span>)</span></code></pre></div></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb44" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1">module_labels <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cutreeDynamic</span>(</span>
+<span id="cb44-2">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">dendro =</span> gene_tree, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">distM =</span> dissTOM,</span>
+<span id="cb44-3">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">deepSplit =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">pamRespectsDendro =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>,</span>
+<span id="cb44-4">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">minClusterSize =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">30</span></span>
+<span id="cb44-5">)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code> ..cutHeight not given, setting it to 0.98  ===&gt;  99% of the (truncated) height range in dendro.
+ ..done.</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb46" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1">module_colors <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labels2colors</span>(module_labels)</span>
+<span id="cb46-2"></span>
+<span id="cb46-3"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Modules detected:"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">unique</span>(module_colors)), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Modules detected: 4 </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">table</span>(module_colors)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>module_colors
+     blue     brown turquoise    yellow 
+      974       871      3026       129 </code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb50" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb50-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">plotDendroAndColors</span>(</span>
+<span id="cb50-2">  gene_tree, module_colors,</span>
+<span id="cb50-3">  <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Module colours"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">dendroLabels =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>,</span>
+<span id="cb50-4">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">hang =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.03</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">addGuide =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">guideHang =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.05</span>,</span>
+<span id="cb50-5">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">main =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Gene clustering and module assignment"</span></span>
+<span id="cb50-6">)</span></code></pre></div></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/gene-coexpression-wgcna-final_files/figure-html/module-dendro-plot-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Gene dendrogram with module colour assignments from dynamic tree cutting</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Each colour band under the dendrogram is a module — a set of genes whose expression rises and falls together across samples closely enough that the network groups them, independent of any prior pathway annotation. Four modules were detected here: turquoise (3026 genes), blue (974), brown (871), and yellow (129) — and notably, no grey module. By WGCNA convention grey collects genes that don’t cluster clearly with anything else; every one of the 5000 genes carried into network construction was assigned to a real module, which is a reasonably clean clustering outcome given the scale-free fit caveat above.</p>
+</section>
+<section id="module-eigengenes-and-trait-correlation" class="level2">
+<h2 class="anchored" data-anchor-id="module-eigengenes-and-trait-correlation">6. Module Eigengenes and Trait Correlation</h2>
+<p>A module eigengene is the first principal component of a module’s expression — a single summary trajectory representing that whole group of genes. Correlating module eigengenes against clinical or experimental traits, rather than correlating every individual gene against every trait, is what turns a co-expression network into a trait-discovery tool: it asks which <em>coordinated programmes</em> of gene activity track a trait, rather than which individual genes happen to.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb51" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb51-1">module_eigengenes <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">moduleEigengenes</span>(expr_matrix, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">colors =</span> module_colors)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>eigengenes</span>
+<span id="cb51-2">module_eigengenes <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">orderMEs</span>(module_eigengenes)</span></code></pre></div></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb52" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb52-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Trait extraction based on GSE60450's known characteristics fields</span></span>
+<span id="cb52-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># (cell type: basal/luminal; developmental stage: virgin/pregnant/lactating).</span></span>
+<span id="cb52-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># If Section 2's printed characteristics columns don't match this pattern</span></span>
+<span id="cb52-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># exactly, this chunk is the one to adjust against the real column names.</span></span>
+<span id="cb52-5">find_trait_col <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(char_cols, pheno_df, pattern) {</span>
+<span id="cb52-6">  <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(char_cols) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>) <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">return</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">character</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>))</span>
+<span id="cb52-7">  char_cols[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sapply</span>(char_cols, <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(c) <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">any</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">grepl</span>(pattern, pheno_df[[c]], <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ignore.case =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>)))]</span>
+<span id="cb52-8">}</span>
+<span id="cb52-9"></span>
+<span id="cb52-10">cell_type_col <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">find_trait_col</span>(char_cols, pheno_aligned, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"basal|luminal"</span>)</span>
+<span id="cb52-11">stage_col     <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">find_trait_col</span>(char_cols, pheno_aligned, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"virgin|pregnan|lactat"</span>)</span>
+<span id="cb52-12"></span>
+<span id="cb52-13">traits_df <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">data.frame</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">row.names =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rownames</span>(pheno_aligned))</span>
+<span id="cb52-14"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(cell_type_col) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>) {</span>
+<span id="cb52-15">  traits_df<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>is_luminal <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.numeric</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">grepl</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"luminal"</span>, pheno_aligned[[cell_type_col[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]]], <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ignore.case =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>))</span>
+<span id="cb52-16">}</span>
+<span id="cb52-17"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">length</span>(stage_col) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>) {</span>
+<span id="cb52-18">  stage_raw <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> pheno_aligned[[stage_col[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]]]</span>
+<span id="cb52-19">  traits_df<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>is_pregnant  <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.numeric</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">grepl</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"pregnan"</span>, stage_raw, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ignore.case =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>))</span>
+<span id="cb52-20">  traits_df<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>is_lactating <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.numeric</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">grepl</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"lactat"</span>, stage_raw, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ignore.case =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>))</span>
+<span id="cb52-21">  traits_df<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>is_virgin    <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.numeric</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">grepl</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"virgin"</span>, stage_raw, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ignore.case =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>))</span>
+<span id="cb52-22">}</span>
+<span id="cb52-23"></span>
+<span id="cb52-24"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Traits extracted:</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Traits extracted:</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb54" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb54-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">print</span>(traits_df)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>                                  is_luminal is_pregnant is_lactating is_virgin
+MCL1-DG_BC2CTUACXX_ACTTGA_L002_R1          0           0            0         1
+MCL1-DH_BC2CTUACXX_CAGATC_L002_R1          0           0            0         1
+MCL1-DI_BC2CTUACXX_ACAGTG_L002_R1          0           1            0         0
+MCL1-DJ_BC2CTUACXX_CGATGT_L002_R1          0           1            0         0
+MCL1-DK_BC2CTUACXX_TTAGGC_L002_R1          0           0            1         0
+MCL1-DL_BC2CTUACXX_ATCACG_L002_R1          0           0            1         0
+MCL1-LA_BC2CTUACXX_GATCAG_L001_R1          1           0            0         1
+MCL1-LB_BC2CTUACXX_TGACCA_L001_R1          1           0            0         1
+MCL1-LC_BC2CTUACXX_GCCAAT_L001_R1          1           1            0         0
+MCL1-LD_BC2CTUACXX_GGCTAC_L001_R1          1           1            0         0
+MCL1-LE_BC2CTUACXX_TAGCTT_L001_R1          1           0            1         0
+MCL1-LF_BC2CTUACXX_CTTGTA_L001_R1          1           0            1         0</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb56" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb56-1">module_trait_cor <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> WGCNA<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cor</span>(module_eigengenes, traits_df, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">use =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"pairwise.complete.obs"</span>)</span>
+<span id="cb56-2">n_samples <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">nrow</span>(expr_matrix)</span>
+<span id="cb56-3">module_trait_pval <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">corPvalueStudent</span>(module_trait_cor, n_samples)</span>
+<span id="cb56-4"></span>
+<span id="cb56-5">module_trait_cor</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>            is_luminal is_pregnant is_lactating   is_virgin
+MEturquoise -0.9770680 -0.04486367  -0.06199318  0.10685684
+MEyellow     0.6358697 -0.16978197  -0.48569547  0.65547744
+MEblue       0.9843972  0.02687789  -0.11807900  0.09120111
+MEbrown      0.7636848 -0.01745347   0.41246456 -0.39501109</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb58" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb58-1">text_matrix <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">matrix</span>(</span>
+<span id="cb58-2">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>(module_trait_cor, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">("</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">signif</span>(module_trait_pval, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">")"</span>),</span>
+<span id="cb58-3">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">nrow =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">nrow</span>(module_trait_cor)</span>
+<span id="cb58-4">)</span>
+<span id="cb58-5"></span>
+<span id="cb58-6"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labeledHeatmap</span>(</span>
+<span id="cb58-7">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">Matrix =</span> module_trait_cor, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">xLabels =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(traits_df),</span>
+<span id="cb58-8">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">yLabels =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rownames</span>(module_trait_cor), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">ySymbols =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rownames</span>(module_trait_cor),</span>
+<span id="cb58-9">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">colorLabels =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">colors =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">blueWhiteRed</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">50</span>),</span>
+<span id="cb58-10">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">textMatrix =</span> text_matrix, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">setStdMargins =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>,</span>
+<span id="cb58-11">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">cex.text =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.6</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">main =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Module-Trait Relationships"</span></span>
+<span id="cb58-12">)</span></code></pre></div></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/gene-coexpression-wgcna-final_files/figure-html/module-trait-heatmap-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Module-trait correlation heatmap — cell colour is correlation strength, cell text is correlation (p-value)</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="Why the pregnant-stage null result stands, unexplained away">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Why the pregnant-stage null result stands, unexplained away
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The result here is a clean, biologically sensible pattern once read against known mammary gland biology. Cell type dominates: blue correlates with <code>is_luminal</code> at r = 0.984, and turquoise — the largest module at 3026 genes — mirrors it almost exactly in the opposite direction at r = -0.977, making it effectively the basal-identity counterpart to blue’s luminal-identity signal. Both sit near the ceiling of what a correlation can express. Developmental-stage traits are real but comparatively modest by contrast: yellow shows a moderate link to <code>is_virgin</code> (r = 0.655) and brown a moderate link to <code>is_lactating</code> (r = 0.412). <code>is_pregnant</code> stands out by having essentially no module-level signal at all — every correlation sits between -0.17 and 0.03, indistinguishable from noise. That’s worth taking at face value rather than explaining away: with cell identity already absorbing the dominant share of variance in this dataset, whatever transcriptional changes accompany the pregnant stage specifically may be too modest, or too spread across many genes without concentrating in a single coherent module, for this kind of network to isolate them as their own programme — a real limitation of a 12-sample series rather than a sign the pregnant-stage samples were mislabelled or uninformative.</p>
+</div>
+</div>
+</section>
+<section id="hub-gene-identification" class="level2">
+<h2 class="anchored" data-anchor-id="hub-gene-identification">7. Hub Gene Identification</h2>
+<p>Within a trait-correlated module, not every member gene is equally central. Intramodular connectivity (kWithin) measures how strongly a gene’s expression pattern matches the module’s overall eigengene; gene significance measures how strongly that individual gene correlates with the trait directly. Genes high on both — well-connected within the module <em>and</em> individually trait-associated — are hub gene candidates: the computational nomination for genes most likely to be mechanistically involved, as opposed to genes correlated with the trait only because they’re swept along by the module’s overall behaviour.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb59" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb59-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Identify the module most strongly correlated (by absolute value) with</span></span>
+<span id="cb59-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># any trait, then find its hub genes. na.rm is essential here: a single</span></span>
+<span id="cb59-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># NA correlation (which can happen if a module eigengene or a trait has</span></span>
+<span id="cb59-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># near-zero variance for some subset of samples) would otherwise make</span></span>
+<span id="cb59-5"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># max() itself return NA, which then makes every comparison fail silently</span></span>
+<span id="cb59-6"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># and leaves no row for which() to find at all.</span></span>
+<span id="cb59-7">n_na_cors <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sum</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.na</span>(module_trait_cor))</span>
+<span id="cb59-8"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> (n_na_cors <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>) {</span>
+<span id="cb59-9">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Note:"</span>, n_na_cors, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"module-trait correlation(s) came back NA"</span>,</span>
+<span id="cb59-10">      <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"(likely a near-zero-variance module or trait) — excluded from"</span>,</span>
+<span id="cb59-11">      <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"the search for the strongest correlation below.</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb59-12">}</span>
+<span id="cb59-13"></span>
+<span id="cb59-14">strongest_idx <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">which</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abs</span>(module_trait_cor) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">max</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abs</span>(module_trait_cor), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">na.rm =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>), <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">arr.ind =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">TRUE</span>)</span>
+<span id="cb59-15">target_module <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">sub</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"^ME"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">""</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rownames</span>(module_trait_cor)[strongest_idx[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]])</span>
+<span id="cb59-16">target_trait  <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(module_trait_cor)[strongest_idx[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2</span>]]</span>
+<span id="cb59-17"></span>
+<span id="cb59-18"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Most trait-correlated module:"</span>, target_module, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Most trait-correlated module: blue </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb61" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb61-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Associated trait:"</span>, target_trait, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Associated trait: is_luminal </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb63" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb63-1"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Correlation:"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">round</span>(module_trait_cor[strongest_idx[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, , <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">drop =</span> <span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">FALSE</span>]], <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Correlation: 0.984 </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb65" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb65-1">module_genes <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(expr_matrix)[module_colors <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> target_module]</span>
+<span id="cb65-2"></span>
+<span id="cb65-3">kIM <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">signedKME</span>(expr_matrix, module_eigengenes, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">outputColumnName =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"kME_"</span>)</span>
+<span id="cb65-4">gene_significance <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">as.numeric</span>(WGCNA<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cor</span>(expr_matrix, traits_df[[target_trait]], <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">use =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"pairwise.complete.obs"</span>))</span>
+<span id="cb65-5"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">names</span>(gene_significance) <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">colnames</span>(expr_matrix)</span>
+<span id="cb65-6"></span>
+<span id="cb65-7">hub_table <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">data.frame</span>(</span>
+<span id="cb65-8">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">gene =</span> module_genes,</span>
+<span id="cb65-9">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">kME =</span> kIM[module_genes, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"kME_"</span>, target_module)],</span>
+<span id="cb65-10">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">gene_significance =</span> gene_significance[module_genes]</span>
+<span id="cb65-11">) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span></span>
+<span id="cb65-12">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">arrange</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">desc</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abs</span>(kME) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">abs</span>(gene_significance)))</span>
+<span id="cb65-13"></span>
+<span id="cb65-14"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># The counts file indexes genes by Entrez ID (numeric), which is exact</span></span>
+<span id="cb65-15"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># but unreadable — map to gene symbols for interpretability. Not every</span></span>
+<span id="cb65-16"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Entrez ID necessarily has a current symbol mapping, so this is handled</span></span>
+<span id="cb65-17"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># defensively rather than assumed to succeed for every gene.</span></span>
+<span id="cb65-18">symbol_map <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">tryCatch</span>(</span>
+<span id="cb65-19">  AnnotationDbi<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">mapIds</span>(org.Mm.eg.db, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">keys =</span> hub_table<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>gene,</span>
+<span id="cb65-20">                         <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">column =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"SYMBOL"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">keytype =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ENTREZID"</span>),</span>
+<span id="cb65-21">  <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">error =</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">function</span>(e) {</span>
+<span id="cb65-22">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">cat</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Gene symbol mapping failed:"</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">conditionMessage</span>(e), <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"— reporting Entrez IDs only.</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb65-23">    <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">setNames</span>(<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">rep</span>(<span class="cn" style="color: #8f5902;
+background-color: null;
+font-style: inherit;">NA_character_</span>, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">nrow</span>(hub_table)), hub_table<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>gene)</span>
+<span id="cb65-24">  }</span>
+<span id="cb65-25">)</span>
+<span id="cb65-26">hub_table<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>gene_symbol <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> symbol_map[hub_table<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>gene]</span>
+<span id="cb65-27">hub_table<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>gene_symbol[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.na</span>(hub_table<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>gene_symbol)] <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> hub_table<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>gene[<span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">is.na</span>(hub_table<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">$</span>gene_symbol)]</span>
+<span id="cb65-28"></span>
+<span id="cb65-29">hub_table <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> hub_table <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">%&gt;%</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">relocate</span>(gene_symbol, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">.after =</span> gene)</span>
+<span id="cb65-30"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">head</span>(hub_table, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">15</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>         gene gene_symbol       kME gene_significance
+74525   74525     Fam234b 0.9902863         0.9966024
+71943   71943      Tom1l1 0.9918488         0.9948086
+242505 242505       Rasef 0.9949508         0.9913632
+227960 227960         Gca 0.9944348         0.9908369
+72168   72168       Aifm3 0.9916797         0.9919790
+330409 330409       Cecr2 0.9888634         0.9943150
+76088   76088       Dock8 0.9919774         0.9875149
+71586   71586       Ifih1 0.9944616         0.9847624
+13136   13136        Cd55 0.9932353         0.9859449
+74464   74464      Zswim5 0.9929302         0.9862364
+56219   56219       Extl1 0.9911665         0.9855625
+269587 269587       Epb41 0.9896383         0.9867551
+14425   14425      Galnt3 0.9895574         0.9864578
+18400   18400    Slc22a18 0.9858302         0.9897403
+12521   12521        Cd82 0.9936637         0.9808370</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb67" style="background: #f1f3f5;"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb67-1">top_hubs <span class="ot" style="color: #003B4F;
+background-color: null;
+font-style: inherit;">&lt;-</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">head</span>(hub_table, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10</span>)</span>
+<span id="cb67-2"></span>
+<span id="cb67-3"><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">ggplot</span>(hub_table, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> kME, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> gene_significance)) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb67-4">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_point</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">alpha =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.6</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb67-5">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_point</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> top_hubs, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">color =</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">size =</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2.5</span>) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb67-6">  ggrepel<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">::</span><span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">geom_text_repel</span>(</span>
+<span id="cb67-7">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">data =</span> top_hubs, <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">aes</span>(<span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">label =</span> gene_symbol),</span>
+<span id="cb67-8">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">size =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>, <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">max.overlaps =</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">15</span></span>
+<span id="cb67-9">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb67-10">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">labs</span>(</span>
+<span id="cb67-11">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">x =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Intramodular connectivity (kME to "</span>, target_module, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">")"</span>),</span>
+<span id="cb67-12">    <span class="at" style="color: #657422;
+background-color: null;
+font-style: inherit;">y =</span> <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">paste0</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Gene significance (correlation with "</span>, target_trait, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">")"</span>)</span>
+<span id="cb67-13">  ) <span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span></span>
+<span id="cb67-14">  <span class="fu" style="color: #4758AB;
+background-color: null;
+font-style: inherit;">theme_minimal</span>()</span></code></pre></div></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/gene-coexpression-wgcna-final_files/figure-html/hub-plot-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Intramodular connectivity vs.&nbsp;gene significance for the target module — genes in the upper right are hub gene candidates, labelled by symbol where available</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The ten genes highlighted in red are this module’s top hub gene candidates — high in both intramodular connectivity and direct trait correlation. All fifteen top-ranked genes cleared kME above 0.985 and gene significance above 0.98, an unusually tight cluster that reflects how strong the luminal-identity signal is in this dataset: Fam234b, Tom1l1, Rasef, Gca, Aifm3, Cecr2, Dock8, Ifih1, Cd55, Zswim5, Extl1, Epb41, Galnt3, Slc22a18, and Cd82. Several of these — Cd55 and Cd82 as membrane surface markers, Epb41 as a cytoskeletal/membrane-scaffold gene — are the kind of cell-surface and structural genes that would plausibly distinguish an epithelial cell identity programme, though confirming any specific one’s established role in luminal versus basal mammary identity is a literature-search question this analysis sets up rather than answers. In a real follow-up, this is precisely the gene list a wet-lab validation or a targeted literature search would start from, rather than starting from all 974 genes in the blue module or, worse, all genes in the genome.</p>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled" title="Key findings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key findings
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>Soft-thresholding power was checked against the data, not assumed — and the honest result was that this dataset (12 samples) never reached a strong scale-free fit (R² peaked around 0.66, well short of the 0.80-0.90 WGCNA’s own guidance looks for). The fallback power of 6 is a reasonable default, not a criterion the data actually satisfied, and that limitation is attached to every result downstream of it rather than hidden.</li>
+<li>Module detection found four real modules covering all 5000 genes with none left unassigned to the grey “noise” category: turquoise (3026 genes), blue (974), brown (871), and yellow (129).</li>
+<li>Cell type dominates the module-trait structure by a wide margin: blue tracks <code>is_luminal</code> at r = 0.984, turquoise mirrors it almost exactly as the basal counterpart at r = -0.977. <code>is_virgin</code> (r = 0.655 with yellow) and <code>is_lactating</code> (r = 0.412 with brown) show real but comparatively modest signals, while <code>is_pregnant</code> showed no meaningful module-level correlation at all (every value between -0.17 and 0.03) — a genuine null result attributable to the small sample size rather than a labelling error, and reported as such rather than explained away.</li>
+<li>Hub gene identification combined two independent pieces of evidence — intramodular connectivity and direct trait correlation — and named real genes rather than opaque IDs: Fam234b, Tom1l1, Rasef, Gca, Aifm3, Cecr2, Dock8, Ifih1, Cd55, Zswim5, Extl1, Epb41, Galnt3, Slc22a18, and Cd82 all cleared kME above 0.985, an unusually tight, high-confidence cluster reflecting how dominant the luminal-identity signal is in this dataset.</li>
+<li>Two real bugs surfaced and were fixed during this analysis, not papered over: a trait-parsing regex that missed “pregnancy” by searching only for the literal word “pregnant,” and a counts file whose first column was gene length, not a thirteenth sample — either one left unfixed would have silently corrupted downstream results rather than producing a visible error.</li>
+</ul>
+</div>
+</div>
+<p>#SystemsBiology #WGCNA #GeneCoexpression #RNAseq #NetworkBiology #GenomicsRstats #Bioinformatics</p>
+
+
+</section>
+
+ ]]></description>
+  <category>Systems Biology</category>
+  <category>Gene Networks</category>
+  <category>WGCNA</category>
+  <category>RNA-seq</category>
+  <category>R</category>
+  <guid>https://Real-peekei.github.io/articles/articles/gene-coexpression-wgcna-final.html</guid>
+  <pubDate>Sun, 13 Sep 2026 21:00:00 GMT</pubDate>
+</item>
+<item>
   <title>Dynamic Modeling of a Three-Tier Kinase Cascade: Ultrasensitivity and Drug Target Identification</title>
   <dc:creator>Peekei </dc:creator>
   <link>https://Real-peekei.github.io/articles/articles/signaling-pathway-ode-final.html</link>
