@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Peekei">
+<meta name="dcterms.date" content="2026-09-14">
+<meta name="description" content="ODE modeling of a MAPK-style kinase cascade in SciPy — dose-response ultrasensitivity, the zero-order kinetic regime, and parameter sensitivity analysis for drug target ranking.">
+
+<title>Dynamic Modeling of a Three-Tier Kinase Cascade: Ultrasensitivity and Drug Target Identification – Peekei</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="https://cdn.jsdelivr.net/npm/jquery@3.5.1/dist/jquery.min.js" integrity="sha384-ZvpUoO/+PpLXR1lu4jmpXWu80pZlYUAfxl5NsBMWOEPSjUn/6Z/hRTt8+pR6L4N2" crossorigin="anonymous"></script><script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-c79b9b43b4475c8f7a5502315412d8cf.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-5523e3e86f7e97080a9acb2c63cc5923.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<style>html{ scroll-behavior: smooth; }</style>
+<script src="https://cdn.jsdelivr.net/npm/requirejs@2.3.6/require.min.js" integrity="sha384-c9c+LnTbwQ3aujuU7ULEPVvgLs+Fn6fJUvIGTsuu1ZcCf11fiEubah0ttpca4ntM sha384-6V1/AdqZRWk1KAlWbKBlGhN7VG4iE/yAZcO6NZPMF8od0vukrvr0tg4qY6NSrItx" crossorigin="anonymous"></script>
+
+
+
+<script type="application/javascript">define('jquery', [],function() {return window.jQuery;})</script>
+
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">Peekei</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="../index.html"> 
+<span class="menu-text">Articles</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="../about.html"> 
+<span class="menu-text">About</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://github.com/Real-peekei/omicsuite"> 
+<span class="menu-text">omicsuite</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/Real-peekei"> <i class="bi bi-github" role="img" aria-label="GitHub">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul class="collapse">
+  <li><a href="#motivation" id="toc-motivation" class="nav-link active" data-scroll-target="#motivation">1. Motivation</a></li>
+  <li><a href="#model-construction" id="toc-model-construction" class="nav-link" data-scroll-target="#model-construction">2. Model Construction</a></li>
+  <li><a href="#time-course-simulation" id="toc-time-course-simulation" class="nav-link" data-scroll-target="#time-course-simulation">3. Time-Course Simulation</a></li>
+  <li><a href="#steady-state-dose-response-and-ultrasensitivity" id="toc-steady-state-dose-response-and-ultrasensitivity" class="nav-link" data-scroll-target="#steady-state-dose-response-and-ultrasensitivity">4. Steady-State Dose-Response and Ultrasensitivity</a></li>
+  <li><a href="#quantifying-ultrasensitivity-hill-coefficient-fitting" id="toc-quantifying-ultrasensitivity-hill-coefficient-fitting" class="nav-link" data-scroll-target="#quantifying-ultrasensitivity-hill-coefficient-fitting">5. Quantifying Ultrasensitivity: Hill Coefficient Fitting</a></li>
+  <li><a href="#assumption-check-zero-order-vs.-first-order-kinetic-regime" id="toc-assumption-check-zero-order-vs.-first-order-kinetic-regime" class="nav-link" data-scroll-target="#assumption-check-zero-order-vs.-first-order-kinetic-regime">6. Assumption Check: Zero-Order vs.&nbsp;First-Order Kinetic Regime</a></li>
+  <li><a href="#parameter-sensitivity-analysis-finding-the-weakest-link" id="toc-parameter-sensitivity-analysis-finding-the-weakest-link" class="nav-link" data-scroll-target="#parameter-sensitivity-analysis-finding-the-weakest-link">7. Parameter Sensitivity Analysis: Finding the Weakest Link</a></li>
+  <li><a href="#takeaways" id="toc-takeaways" class="nav-link" data-scroll-target="#takeaways">Takeaways</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Dynamic Modeling of a Three-Tier Kinase Cascade: Ultrasensitivity and Drug Target Identification</h1>
+  <div class="quarto-categories">
+    <div class="quarto-category">Systems Biology</div>
+    <div class="quarto-category">Signal Transduction</div>
+    <div class="quarto-category">ODE Modeling</div>
+    <div class="quarto-category">Python</div>
+    <div class="quarto-category">Computational Biology</div>
+  </div>
+  </div>
+
+<div>
+  <div class="description">
+    ODE modeling of a MAPK-style kinase cascade in SciPy — dose-response ultrasensitivity, the zero-order kinetic regime, and parameter sensitivity analysis for drug target ranking.
+  </div>
+</div>
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Peekei </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">September 14, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<!--
+SETUP — run this once in a terminal before rendering:
+
+  conda create -n signaling-ode python=3.10 -y
+  conda activate signaling-ode
+  pip install scipy numpy pandas matplotlib seaborn jupyter ipykernel
+  python -m ipykernel install --user --name signaling-ode --display-name "Python (signaling-ode)"
+
+The `jupyter: signaling-ode` field in the YAML header above tells Quarto
+which kernel to render with. If you named your environment something
+other than `signaling-ode`, either rename it to match or update that field.
+
+Render with:  quarto render signaling-pathway-ode-v1.qmd
+(or click Render in RStudio — it calls Quarto the same way)
+-->
+<section id="motivation" class="level2">
+<h2 class="anchored" data-anchor-id="motivation">1. Motivation</h2>
+<p>A cell receiving an external signal — a growth factor binding its receptor, a hormone, a stress cue — rarely responds to that signal in direct proportion to its strength. Instead, many signal transduction pathways behave more like switches: below some threshold, almost nothing happens; above it, the pathway commits fully. The three-tier kinase cascade at the heart of the MAPK pathway (Raf → MEK → ERK, and its analogues across essentially every eukaryotic signaling system) is the canonical example of how this switch-like behaviour emerges — not from any single ultrasensitive component, but from cascading several only-mildly-sensitive enzymatic steps in series.</p>
+<p>This piece builds that cascade as a system of ordinary differential equations, characterises the ultrasensitivity that emerges as the signal propagates from tier to tier, checks explicitly whether the model is actually operating in the kinetic regime that produces switch-like behaviour (it is possible to build the same cascade topology and get a graded, non-switch-like response — the regime matters, and asserting ultrasensitivity without checking it is a common shortcut), and finishes with a parameter sensitivity analysis to identify which kinetic step the pathway’s output depends on most — the computational equivalent of asking which enzyme, if drugged, would shut the pathway down hardest.</p>
+</section>
+<section id="model-construction" class="level2">
+<h2 class="anchored" data-anchor-id="model-construction">2. Model Construction</h2>
+<p>Each tier of the cascade is a kinase that exists in an inactive and an active (phosphorylated) form. The previous tier’s active kinase catalyses phosphorylation of the next tier; a constitutively active phosphatase catalyses the reverse reaction. Both reactions are modelled with saturable (Michaelis-Menten-style) kinetics — the Goldbeter-Koshland formulation that underlies essentially every published kinase cascade model of this kind:</p>
+<p><span class="math display">\[\frac{d[E_i^P]}{dt} = \frac{V_{on,i} \cdot (E_{i,tot} - E_i^P)}{K_{on,i} + (E_{i,tot} - E_i^P)} - \frac{V_{off,i} \cdot E_i^P}{K_{off,i} + E_i^P}\]</span></p>
+<p>where <span class="math inline">\(V_{on,1}\)</span> is driven by the external signal <span class="math inline">\(S(t)\)</span>, and <span class="math inline">\(V_{on,2}\)</span>, <span class="math inline">\(V_{on,3}\)</span> are driven by the active fraction of the tier immediately upstream — this upstream-driving-downstream structure is what makes it a cascade rather than three independent switches.</p>
+<div id="setup" class="cell" data-execution_count="1">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> pandas <span class="im">as</span> pd</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> matplotlib.pyplot <span class="im">as</span> plt</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> seaborn <span class="im">as</span> sns</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> scipy.integrate <span class="im">import</span> solve_ivp</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="im">from</span> scipy.optimize <span class="im">import</span> curve_fit</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>sns.set_style(<span class="st">"whitegrid"</span>)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="co"># Total protein concentration at each tier (normalised units)</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>E_total <span class="op">=</span> np.array([<span class="fl">1.0</span>, <span class="fl">1.0</span>, <span class="fl">1.0</span>])</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Catalytic rate constants for the forward (activating) reaction at each tier</span></span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>k_cat <span class="op">=</span> np.array([<span class="fl">1.0</span>, <span class="fl">1.0</span>, <span class="fl">1.0</span>])</span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a><span class="co"># Michaelis constants for the forward reaction — small relative to E_total</span></span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a><span class="co"># puts the system in the "zero-order" ultrasensitive regime (Section 6</span></span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a><span class="co"># checks this explicitly rather than assuming it)</span></span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>Km_on <span class="op">=</span> np.array([<span class="fl">0.05</span>, <span class="fl">0.05</span>, <span class="fl">0.05</span>])</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a><span class="co"># Michaelis constants for the reverse (phosphatase) reaction</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>Km_off <span class="op">=</span> np.array([<span class="fl">0.05</span>, <span class="fl">0.05</span>, <span class="fl">0.05</span>])</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a><span class="co"># Phosphatase Vmax at each tier — constitutive, signal-independent</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>Vmax_off <span class="op">=</span> np.array([<span class="fl">0.5</span>, <span class="fl">0.5</span>, <span class="fl">0.5</span>])</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> cascade_ode(t, y, S_func, k_cat, Km_on, Km_off, Vmax_off, E_total):</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>    E1_P, E2_P, E3_P <span class="op">=</span> y</span>
+<span id="cb1-30"><a href="#cb1-30" aria-hidden="true" tabindex="-1"></a>    S <span class="op">=</span> S_func(t)</span>
+<span id="cb1-31"><a href="#cb1-31" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-32"><a href="#cb1-32" aria-hidden="true" tabindex="-1"></a>    E1, E2, E3 <span class="op">=</span> E_total <span class="op">-</span> np.array([E1_P, E2_P, E3_P])</span>
+<span id="cb1-33"><a href="#cb1-33" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-34"><a href="#cb1-34" aria-hidden="true" tabindex="-1"></a>    v1_on  <span class="op">=</span> k_cat[<span class="dv">0</span>] <span class="op">*</span> S    <span class="op">*</span> E1 <span class="op">/</span> (Km_on[<span class="dv">0</span>] <span class="op">+</span> E1)</span>
+<span id="cb1-35"><a href="#cb1-35" aria-hidden="true" tabindex="-1"></a>    v2_on  <span class="op">=</span> k_cat[<span class="dv">1</span>] <span class="op">*</span> E1_P <span class="op">*</span> E2 <span class="op">/</span> (Km_on[<span class="dv">1</span>] <span class="op">+</span> E2)</span>
+<span id="cb1-36"><a href="#cb1-36" aria-hidden="true" tabindex="-1"></a>    v3_on  <span class="op">=</span> k_cat[<span class="dv">2</span>] <span class="op">*</span> E2_P <span class="op">*</span> E3 <span class="op">/</span> (Km_on[<span class="dv">2</span>] <span class="op">+</span> E3)</span>
+<span id="cb1-37"><a href="#cb1-37" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-38"><a href="#cb1-38" aria-hidden="true" tabindex="-1"></a>    v1_off <span class="op">=</span> Vmax_off[<span class="dv">0</span>] <span class="op">*</span> E1_P <span class="op">/</span> (Km_off[<span class="dv">0</span>] <span class="op">+</span> E1_P)</span>
+<span id="cb1-39"><a href="#cb1-39" aria-hidden="true" tabindex="-1"></a>    v2_off <span class="op">=</span> Vmax_off[<span class="dv">1</span>] <span class="op">*</span> E2_P <span class="op">/</span> (Km_off[<span class="dv">1</span>] <span class="op">+</span> E2_P)</span>
+<span id="cb1-40"><a href="#cb1-40" aria-hidden="true" tabindex="-1"></a>    v3_off <span class="op">=</span> Vmax_off[<span class="dv">2</span>] <span class="op">*</span> E3_P <span class="op">/</span> (Km_off[<span class="dv">2</span>] <span class="op">+</span> E3_P)</span>
+<span id="cb1-41"><a href="#cb1-41" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-42"><a href="#cb1-42" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> [v1_on <span class="op">-</span> v1_off, v2_on <span class="op">-</span> v2_off, v3_on <span class="op">-</span> v3_off]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div id="telluruim-aside" class="cell" data-execution_count="2">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># For reference: this is how the same kind of model would instead be</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="co"># imported from a published, curated SBML file in the BioModels</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Database using Tellurium, rather than hand-built from kinetic theory.</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Not run as part of this analysis — shown for completeness against</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="co"># the standard systems-biology toolchain.</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> tellurium <span class="im">as</span> te</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>model <span class="op">=</span> te.loadSBMLModel(<span class="st">"BIOMD0000000009.xml"</span>)  <span class="co"># example BioModels ID</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>result <span class="op">=</span> model.simulate(<span class="dv">0</span>, <span class="dv">200</span>, <span class="dv">500</span>)</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>model.plot(result)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+</section>
+<section id="time-course-simulation" class="level2">
+<h2 class="anchored" data-anchor-id="time-course-simulation">3. Time-Course Simulation</h2>
+<p>With the input signal held at a fixed level (a step input turned on at <span class="math inline">\(t=0\)</span>), the three tiers activate in sequence, each lagging behind the one upstream of it.</p>
+<div id="time-course" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> step_signal(level):</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="kw">lambda</span> t: level <span class="cf">if</span> t <span class="op">&gt;=</span> <span class="dv">0</span> <span class="cf">else</span> <span class="fl">0.0</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>S_level <span class="op">=</span> <span class="fl">0.3</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>sol <span class="op">=</span> solve_ivp(</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    cascade_ode, t_span<span class="op">=</span>(<span class="dv">0</span>, <span class="dv">60</span>), y0<span class="op">=</span>[<span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">0</span>],</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    args<span class="op">=</span>(step_signal(S_level), k_cat, Km_on, Km_off, Vmax_off, E_total),</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>    method<span class="op">=</span><span class="st">"LSODA"</span>, dense_output<span class="op">=</span><span class="va">True</span>, max_step<span class="op">=</span><span class="fl">0.5</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>t_plot <span class="op">=</span> np.linspace(<span class="dv">0</span>, <span class="dv">60</span>, <span class="dv">300</span>)</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>y_plot <span class="op">=</span> sol.sol(t_plot)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div id="cell-time-course-plot" class="cell" data-execution_count="4">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots()</span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>labels <span class="op">=</span> [<span class="st">"Tier 1 (E1-P)"</span>, <span class="st">"Tier 2 (E2-P)"</span>, <span class="st">"Tier 3 (E3-P)"</span>]</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>colors <span class="op">=</span> [<span class="st">"#4DBBD5"</span>, <span class="st">"#3C5488"</span>, <span class="st">"#E64B35"</span>]</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">3</span>):</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>    ax.plot(t_plot, y_plot[i], label<span class="op">=</span>labels[i], color<span class="op">=</span>colors[i], linewidth<span class="op">=</span><span class="dv">2</span>)</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Time"</span>)</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Active (phosphorylated) fraction"</span>)</span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>ax.legend()</span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="time-course-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="signaling-pathway-ode-final_files/figure-html/time-course-plot-output-1.png" width="758" height="470" class="figure-img"></p>
+<figcaption>Activation time course for each cascade tier following a step input signal</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The delay visible between tiers — tier 2 rising only once tier 1 has built up, tier 3 only once tier 2 has — is the cascade’s signal propagation time, and it’s a direct, testable consequence of the model structure rather than an assumption. Each tier also settles to its own steady-state activation level, which is what Section 4 systematically maps out as a function of input strength.</p>
+</section>
+<section id="steady-state-dose-response-and-ultrasensitivity" class="level2">
+<h2 class="anchored" data-anchor-id="steady-state-dose-response-and-ultrasensitivity">4. Steady-State Dose-Response and Ultrasensitivity</h2>
+<p>Rather than one fixed input level, sweeping the input signal across a range and recording each tier’s steady-state activation traces out a dose-response curve — the pathway’s fundamental input-output relationship.</p>
+<div id="dose-response" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> steady_state(S_level, k_cat, Km_on, Km_off, Vmax_off, E_total, t_max<span class="op">=</span><span class="dv">300</span>):</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>    sol <span class="op">=</span> solve_ivp(</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>        cascade_ode, t_span<span class="op">=</span>(<span class="dv">0</span>, t_max), y0<span class="op">=</span>[<span class="dv">0</span>, <span class="dv">0</span>, <span class="dv">0</span>],</span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>        args<span class="op">=</span>(step_signal(S_level), k_cat, Km_on, Km_off, Vmax_off, E_total),</span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        method<span class="op">=</span><span class="st">"LSODA"</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> sol.y[:, <span class="op">-</span><span class="dv">1</span>]</span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>S_range <span class="op">=</span> np.logspace(<span class="op">-</span><span class="dv">3</span>, <span class="dv">2</span>, <span class="dv">50</span>)</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>steady_states <span class="op">=</span> np.array([</span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>    steady_state(S, k_cat, Km_on, Km_off, Vmax_off, E_total) <span class="cf">for</span> S <span class="kw">in</span> S_range</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>])</span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>dose_response_df <span class="op">=</span> pd.DataFrame(</span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    steady_states, columns<span class="op">=</span>[<span class="st">"Tier1_P"</span>, <span class="st">"Tier2_P"</span>, <span class="st">"Tier3_P"</span>]</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>dose_response_df[<span class="st">"S"</span>] <span class="op">=</span> S_range</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div id="cell-dose-response-plot" class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots()</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> col, label, color <span class="kw">in</span> <span class="bu">zip</span>(</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>    [<span class="st">"Tier1_P"</span>, <span class="st">"Tier2_P"</span>, <span class="st">"Tier3_P"</span>], labels, colors</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>):</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>    ax.plot(dose_response_df[<span class="st">"S"</span>], dose_response_df[col],</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>            label<span class="op">=</span>label, color<span class="op">=</span>color, linewidth<span class="op">=</span><span class="dv">2</span>, marker<span class="op">=</span><span class="st">"o"</span>, markersize<span class="op">=</span><span class="dv">3</span>)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>ax.set_xscale(<span class="st">"log"</span>)</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Input signal strength (S)"</span>)</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Steady-state active fraction"</span>)</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>ax.legend()</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="dose-response-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="signaling-pathway-ode-final_files/figure-html/dose-response-plot-output-1.png" width="758" height="468" class="figure-img"></p>
+<figcaption>Steady-state dose-response curves for each cascade tier, input signal on a log scale</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>If the cascade amplifies ultrasensitivity as it propagates — which is the entire reason cascades are a common motif in cell signaling rather than a single ultrasensitive enzyme doing the whole job — tier 3’s curve should look visibly steeper (more switch-like) than tier 1’s. Section 5 puts a number on exactly how much steeper.</p>
+</section>
+<section id="quantifying-ultrasensitivity-hill-coefficient-fitting" class="level2">
+<h2 class="anchored" data-anchor-id="quantifying-ultrasensitivity-hill-coefficient-fitting">5. Quantifying Ultrasensitivity: Hill Coefficient Fitting</h2>
+<p>A Hill function, <span class="math inline">\(E^P(S) = E_{tot} \cdot S^n / (K^n + S^n)\)</span>, is the standard way to summarise a sigmoidal dose-response curve with a single ultrasensitivity metric: the Hill coefficient <span class="math inline">\(n\)</span>. <span class="math inline">\(n = 1\)</span> is a simple hyperbolic (graded, Michaelis-Menten-like) response; <span class="math inline">\(n &gt; 1\)</span> is sigmoidal; larger <span class="math inline">\(n\)</span> means a sharper, more switch-like transition.</p>
+<div id="cell-hill-fit" class="cell" data-execution_count="7">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb7"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> hill_function(S, Vmax, K, n):</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> Vmax <span class="op">*</span> S<span class="op">**</span>n <span class="op">/</span> (K<span class="op">**</span>n <span class="op">+</span> S<span class="op">**</span>n)</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> fit_hill(S_values, output_values, label<span class="op">=</span><span class="st">""</span>):</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    <span class="co">"""Fit a Hill function, with wide-enough bounds to accommodate a</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="co">    right-shifted or attenuated curve, and a clear failure message</span></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a><span class="co">    instead of a crash if the fit genuinely can't converge."""</span></span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">try</span>:</span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>        popt, _ <span class="op">=</span> curve_fit(</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>            hill_function, S_values, output_values,</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>            p0<span class="op">=</span>[<span class="bu">max</span>(output_values.<span class="bu">max</span>(), <span class="fl">0.01</span>), np.median(S_values), <span class="fl">2.0</span>],</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>            maxfev<span class="op">=</span><span class="dv">30000</span>, bounds<span class="op">=</span>([<span class="dv">0</span>, <span class="fl">1e-6</span>, <span class="fl">0.1</span>], [<span class="dv">2</span>, <span class="dv">100</span>, <span class="dv">20</span>])</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>        )</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> {<span class="st">"Vmax"</span>: popt[<span class="dv">0</span>], <span class="st">"K"</span>: popt[<span class="dv">1</span>], <span class="st">"n"</span>: popt[<span class="dv">2</span>]}</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>    <span class="cf">except</span> <span class="pp">RuntimeError</span> <span class="im">as</span> e:</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>        <span class="bu">print</span>(<span class="ss">f"Hill fit did not converge for </span><span class="sc">{</span>label<span class="sc">}</span><span class="ss">: </span><span class="sc">{</span>e<span class="sc">}</span><span class="ss">"</span>)</span>
+<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>        <span class="cf">return</span> {<span class="st">"Vmax"</span>: np.nan, <span class="st">"K"</span>: np.nan, <span class="st">"n"</span>: np.nan}</span>
+<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>hill_fits <span class="op">=</span> {}</span>
+<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> col <span class="kw">in</span> [<span class="st">"Tier1_P"</span>, <span class="st">"Tier2_P"</span>, <span class="st">"Tier3_P"</span>]:</span>
+<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a>    hill_fits[col] <span class="op">=</span> fit_hill(dose_response_df[<span class="st">"S"</span>], dose_response_df[col], label<span class="op">=</span>col)</span>
+<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>hill_df <span class="op">=</span> pd.DataFrame(hill_fits).T</span>
+<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>hill_df.index <span class="op">=</span> [<span class="st">"Tier 1"</span>, <span class="st">"Tier 2"</span>, <span class="st">"Tier 3"</span>]</span>
+<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>hill_df</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="hill-fit" class="cell-output cell-output-display" data-execution_count="6">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">Vmax</th>
+<th data-quarto-table-cell-role="th">K</th>
+<th data-quarto-table-cell-role="th">n</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Tier 1</th>
+<td>0.991376</td>
+<td>0.499368</td>
+<td>7.60809</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Tier 2</th>
+<td>0.955120</td>
+<td>0.504204</td>
+<td>20.00000</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Tier 3</th>
+<td>0.953275</td>
+<td>0.506049</td>
+<td>20.00000</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-hill-plot" class="cell" data-execution_count="8">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">6</span>, <span class="dv">4</span>))</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>ax.bar(hill_df.index, hill_df[<span class="st">"n"</span>], color<span class="op">=</span>colors, alpha<span class="op">=</span><span class="fl">0.85</span>)</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>ax.axhline(<span class="dv">1</span>, color<span class="op">=</span><span class="st">"grey"</span>, linestyle<span class="op">=</span><span class="st">"--"</span>, linewidth<span class="op">=</span><span class="fl">0.8</span>, label<span class="op">=</span><span class="st">"n = 1 (graded)"</span>)</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Fitted Hill coefficient (n)"</span>)</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>ax.legend()</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="hill-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="signaling-pathway-ode-final_files/figure-html/hill-plot-output-1.png" width="566" height="374" class="figure-img"></p>
+<figcaption>Hill coefficient (ultrasensitivity) by cascade tier</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The fitted values show the amplification claim playing out, and then some: tier 1’s Hill coefficient came out at 7.61, already well past the graded regime, and tiers 2 and 3 both hit 20.00 — the upper edge of the bound placed on the fit. That’s worth being precise about rather than reporting 20.00 as a clean result: hitting a bound means the fit didn’t converge to an interior optimum, it means the true Hill coefficient for tiers 2 and 3 is <em>at least</em> 20, possibly considerably higher, and this particular three-parameter Hill function isn’t able to pin down exactly how high once the response is this close to a step function. If anything, that’s a stronger statement about ultrasensitivity than a precise number would have been — by tier 2, the cascade’s response to its input is already close to binary.</p>
+<div class="callout callout-style-default callout-important callout-titled" title="This result depends on a kinetic regime, not just a topology">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>This result depends on a kinetic regime, not just a topology
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Cascading enzymatic steps does not automatically produce ultrasensitivity. It does so specifically when each tier’s Michaelis constants are small relative to that tier’s total protein concentration — the “zero-order” regime, where enzymes operate near saturation. If the Km values are instead comparable to or larger than the total protein pool, the same cascade topology produces an essentially graded, non-switch-like response. Section 6 demonstrates this explicitly rather than treating ultrasensitivity as a property of cascades in general.</p>
+</div>
+</div>
+</section>
+<section id="assumption-check-zero-order-vs.-first-order-kinetic-regime" class="level2">
+<h2 class="anchored" data-anchor-id="assumption-check-zero-order-vs.-first-order-kinetic-regime">6. Assumption Check: Zero-Order vs.&nbsp;First-Order Kinetic Regime</h2>
+<div id="cell-regime-comparison" class="cell" data-execution_count="9">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb9"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Zero-order regime: Km &lt;&lt; E_total (already the parameters used above)</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>Km_on_zero_order  <span class="op">=</span> np.array([<span class="fl">0.05</span>, <span class="fl">0.05</span>, <span class="fl">0.05</span>])</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>Km_off_zero_order <span class="op">=</span> np.array([<span class="fl">0.05</span>, <span class="fl">0.05</span>, <span class="fl">0.05</span>])</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a><span class="co"># First-order regime: Km &gt;&gt; E_total — enzymes are far from saturation</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>Km_on_first_order  <span class="op">=</span> np.array([<span class="fl">5.0</span>, <span class="fl">5.0</span>, <span class="fl">5.0</span>])</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>Km_off_first_order <span class="op">=</span> np.array([<span class="fl">5.0</span>, <span class="fl">5.0</span>, <span class="fl">5.0</span>])</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> compute_dose_response(Km_on_set, Km_off_set):</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>    ss <span class="op">=</span> np.array([</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>        steady_state(S, k_cat, Km_on_set, Km_off_set, Vmax_off, E_total)</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> S <span class="kw">in</span> S_range</span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>    ])</span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> pd.DataFrame(ss, columns<span class="op">=</span>[<span class="st">"Tier1_P"</span>, <span class="st">"Tier2_P"</span>, <span class="st">"Tier3_P"</span>])</span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>dr_zero_order  <span class="op">=</span> compute_dose_response(Km_on_zero_order, Km_off_zero_order)</span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>dr_first_order <span class="op">=</span> compute_dose_response(Km_on_first_order, Km_off_first_order)</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>regime_comparison <span class="op">=</span> pd.DataFrame({</span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Zero-order (Km &lt;&lt; E_total)"</span>: [</span>
+<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a>        fit_hill(S_range, dr_zero_order[c], label<span class="op">=</span><span class="ss">f"zero-order </span><span class="sc">{</span>c<span class="sc">}</span><span class="ss">"</span>)[<span class="st">"n"</span>]</span>
+<span id="cb9-22"><a href="#cb9-22" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> c <span class="kw">in</span> [<span class="st">"Tier1_P"</span>, <span class="st">"Tier2_P"</span>, <span class="st">"Tier3_P"</span>]</span>
+<span id="cb9-23"><a href="#cb9-23" aria-hidden="true" tabindex="-1"></a>    ],</span>
+<span id="cb9-24"><a href="#cb9-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"First-order (Km &gt;&gt; E_total)"</span>: [</span>
+<span id="cb9-25"><a href="#cb9-25" aria-hidden="true" tabindex="-1"></a>        fit_hill(S_range, dr_first_order[c], label<span class="op">=</span><span class="ss">f"first-order </span><span class="sc">{</span>c<span class="sc">}</span><span class="ss">"</span>)[<span class="st">"n"</span>]</span>
+<span id="cb9-26"><a href="#cb9-26" aria-hidden="true" tabindex="-1"></a>        <span class="cf">for</span> c <span class="kw">in</span> [<span class="st">"Tier1_P"</span>, <span class="st">"Tier2_P"</span>, <span class="st">"Tier3_P"</span>]</span>
+<span id="cb9-27"><a href="#cb9-27" aria-hidden="true" tabindex="-1"></a>    ],</span>
+<span id="cb9-28"><a href="#cb9-28" aria-hidden="true" tabindex="-1"></a>}, index<span class="op">=</span>[<span class="st">"Tier 1"</span>, <span class="st">"Tier 2"</span>, <span class="st">"Tier 3"</span>])</span>
+<span id="cb9-29"><a href="#cb9-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-30"><a href="#cb9-30" aria-hidden="true" tabindex="-1"></a>regime_comparison</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="regime-comparison" class="cell-output cell-output-display" data-execution_count="8">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">Zero-order (Km &lt;&lt; E_total)</th>
+<th data-quarto-table-cell-role="th">First-order (Km &gt;&gt; E_total)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Tier 1</th>
+<td>7.60809</td>
+<td>1.080781</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Tier 2</th>
+<td>20.00000</td>
+<td>1.102488</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Tier 3</th>
+<td>20.00000</td>
+<td>1.107444</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-regime-plot" class="cell" data-execution_count="10">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots()</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>ax.plot(S_range, dr_zero_order[<span class="st">"Tier3_P"</span>], label<span class="op">=</span><span class="st">"Zero-order (Km &lt;&lt; E_total)"</span>,</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>        color<span class="op">=</span><span class="st">"#E64B35"</span>, linewidth<span class="op">=</span><span class="dv">2</span>, marker<span class="op">=</span><span class="st">"o"</span>, markersize<span class="op">=</span><span class="dv">3</span>)</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>ax.plot(S_range, dr_first_order[<span class="st">"Tier3_P"</span>], label<span class="op">=</span><span class="st">"First-order (Km &gt;&gt; E_total)"</span>,</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>        color<span class="op">=</span><span class="st">"#4DBBD5"</span>, linewidth<span class="op">=</span><span class="dv">2</span>, marker<span class="op">=</span><span class="st">"o"</span>, markersize<span class="op">=</span><span class="dv">3</span>)</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>ax.set_xscale(<span class="st">"log"</span>)</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Input signal strength (S)"</span>)</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>ax.set_ylabel(<span class="st">"Tier 3 steady-state active fraction"</span>)</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>ax.legend()</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="regime-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="signaling-pathway-ode-final_files/figure-html/regime-plot-output-1.png" width="758" height="468" class="figure-img"></p>
+<figcaption>Tier 3 dose-response curve under the zero-order vs.&nbsp;first-order kinetic regime</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="Why the kinetic regime matters more than cascade depth">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Why the kinetic regime matters more than cascade depth
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The contrast is stark, and it confirms the theory cleanly. In the first-order regime, Hill coefficients sit at 1.08, 1.10, and 1.11 across tiers 1 through 3 — barely above the n = 1 graded baseline, with only a slight uptick tier to tier. In the zero-order regime — same topology, same total protein levels, same phosphatase activity, only the Michaelis constants changed — the coefficients are 7.61, ≥20, and ≥20. The entire ultrasensitivity result from Section 5 depends on that one change. It’s also worth noting what the first-order numbers say on their own: the cascade structure itself contributes a small amount of steepening even without zero-order kinetics (1.08 → 1.11 across three tiers), but it’s a minor effect next to what the kinetic regime contributes. Ultrasensitivity here is overwhelmingly a property of operating near enzyme saturation, not of chaining reactions in series.</p>
+</div>
+</div>
+</section>
+<section id="parameter-sensitivity-analysis-finding-the-weakest-link" class="level2">
+<h2 class="anchored" data-anchor-id="parameter-sensitivity-analysis-finding-the-weakest-link">7. Parameter Sensitivity Analysis: Finding the Weakest Link</h2>
+<p>Every kinetic parameter in this model is, in principle, something a drug could perturb — a kinase inhibitor reduces an effective <span class="math inline">\(k_{cat}\)</span>, a phosphatase activator raises a <span class="math inline">\(V_{off}\)</span>. Local sensitivity analysis asks: for a small perturbation to each parameter, how much does pathway output move? The parameter the output is most sensitive to is the strongest candidate drug target, because a small effect on that parameter produces the largest effect on the pathway.</p>
+<p>Sensitivity is evaluated at the tier-3 EC50 — the input level at half-maximal tier-3 activation — since that is where the dose-response curve is steepest and therefore where a given perturbation is most likely to produce a detectable change in output.</p>
+<div id="cell-sensitivity-setup" class="cell" data-execution_count="11">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Reference input: tier 3's EC50 from the zero-order regime fit above</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>S_ref <span class="op">=</span> hill_fits[<span class="st">"Tier3_P"</span>][<span class="st">"K"</span>]</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> tier3_output_at_Sref(k_cat, Km_on, Km_off, Vmax_off, E_total, S_ref):</span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> steady_state(S_ref, k_cat, Km_on, Km_off, Vmax_off, E_total)[<span class="dv">2</span>]</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>baseline_output <span class="op">=</span> tier3_output_at_Sref(k_cat, Km_on, Km_off, Vmax_off, E_total, S_ref)</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Parameters under test: catalytic rates, phosphatase Vmax, and Km_on/Km_off</span></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a><span class="co"># for all three tiers. Total protein levels are deliberately excluded —</span></span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a><span class="co"># a drug in the classical sense perturbs an enzyme's kinetics, not the</span></span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a><span class="co"># cell's total expression of that enzyme, so restricting the search to</span></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a><span class="co"># kinetic parameters keeps the ranking pharmacologically interpretable.</span></span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>param_specs <span class="op">=</span> []</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i <span class="kw">in</span> <span class="bu">range</span>(<span class="dv">3</span>):</span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>    param_specs.append((<span class="ss">f"k_cat[</span><span class="sc">{</span>i<span class="op">+</span><span class="dv">1</span><span class="sc">}</span><span class="ss">]"</span>, <span class="st">"k_cat"</span>, i))</span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>    param_specs.append((<span class="ss">f"Vmax_off[</span><span class="sc">{</span>i<span class="op">+</span><span class="dv">1</span><span class="sc">}</span><span class="ss">]"</span>, <span class="st">"Vmax_off"</span>, i))</span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>    param_specs.append((<span class="ss">f"Km_on[</span><span class="sc">{</span>i<span class="op">+</span><span class="dv">1</span><span class="sc">}</span><span class="ss">]"</span>, <span class="st">"Km_on"</span>, i))</span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>    param_specs.append((<span class="ss">f"Km_off[</span><span class="sc">{</span>i<span class="op">+</span><span class="dv">1</span><span class="sc">}</span><span class="ss">]"</span>, <span class="st">"Km_off"</span>, i))</span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a>perturbation <span class="op">=</span> <span class="fl">0.05</span>  <span class="co"># ±5%</span></span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a>sensitivities <span class="op">=</span> {}</span>
+<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-24"><a href="#cb11-24" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> name, array_name, idx <span class="kw">in</span> param_specs:</span>
+<span id="cb11-25"><a href="#cb11-25" aria-hidden="true" tabindex="-1"></a>    params <span class="op">=</span> {</span>
+<span id="cb11-26"><a href="#cb11-26" aria-hidden="true" tabindex="-1"></a>        <span class="st">"k_cat"</span>: k_cat.copy(), <span class="st">"Vmax_off"</span>: Vmax_off.copy(),</span>
+<span id="cb11-27"><a href="#cb11-27" aria-hidden="true" tabindex="-1"></a>        <span class="st">"Km_on"</span>: Km_on.copy(), <span class="st">"Km_off"</span>: Km_off.copy()</span>
+<span id="cb11-28"><a href="#cb11-28" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb11-29"><a href="#cb11-29" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-30"><a href="#cb11-30" aria-hidden="true" tabindex="-1"></a>    params_up <span class="op">=</span> {k: v.copy() <span class="cf">for</span> k, v <span class="kw">in</span> params.items()}</span>
+<span id="cb11-31"><a href="#cb11-31" aria-hidden="true" tabindex="-1"></a>    params_up[array_name][idx] <span class="op">*=</span> (<span class="dv">1</span> <span class="op">+</span> perturbation)</span>
+<span id="cb11-32"><a href="#cb11-32" aria-hidden="true" tabindex="-1"></a>    output_up <span class="op">=</span> tier3_output_at_Sref(</span>
+<span id="cb11-33"><a href="#cb11-33" aria-hidden="true" tabindex="-1"></a>        params_up[<span class="st">"k_cat"</span>], params_up[<span class="st">"Km_on"</span>], params_up[<span class="st">"Km_off"</span>],</span>
+<span id="cb11-34"><a href="#cb11-34" aria-hidden="true" tabindex="-1"></a>        params_up[<span class="st">"Vmax_off"</span>], E_total, S_ref</span>
+<span id="cb11-35"><a href="#cb11-35" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb11-36"><a href="#cb11-36" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-37"><a href="#cb11-37" aria-hidden="true" tabindex="-1"></a>    params_down <span class="op">=</span> {k: v.copy() <span class="cf">for</span> k, v <span class="kw">in</span> params.items()}</span>
+<span id="cb11-38"><a href="#cb11-38" aria-hidden="true" tabindex="-1"></a>    params_down[array_name][idx] <span class="op">*=</span> (<span class="dv">1</span> <span class="op">-</span> perturbation)</span>
+<span id="cb11-39"><a href="#cb11-39" aria-hidden="true" tabindex="-1"></a>    output_down <span class="op">=</span> tier3_output_at_Sref(</span>
+<span id="cb11-40"><a href="#cb11-40" aria-hidden="true" tabindex="-1"></a>        params_down[<span class="st">"k_cat"</span>], params_down[<span class="st">"Km_on"</span>], params_down[<span class="st">"Km_off"</span>],</span>
+<span id="cb11-41"><a href="#cb11-41" aria-hidden="true" tabindex="-1"></a>        params_down[<span class="st">"Vmax_off"</span>], E_total, S_ref</span>
+<span id="cb11-42"><a href="#cb11-42" aria-hidden="true" tabindex="-1"></a>    )</span>
+<span id="cb11-43"><a href="#cb11-43" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-44"><a href="#cb11-44" aria-hidden="true" tabindex="-1"></a>    <span class="co"># Normalised local sensitivity coefficient: (%change in output) / (%change in parameter)</span></span>
+<span id="cb11-45"><a href="#cb11-45" aria-hidden="true" tabindex="-1"></a>    pct_change_output <span class="op">=</span> (output_up <span class="op">-</span> output_down) <span class="op">/</span> baseline_output</span>
+<span id="cb11-46"><a href="#cb11-46" aria-hidden="true" tabindex="-1"></a>    pct_change_param <span class="op">=</span> <span class="dv">2</span> <span class="op">*</span> perturbation</span>
+<span id="cb11-47"><a href="#cb11-47" aria-hidden="true" tabindex="-1"></a>    sensitivities[name] <span class="op">=</span> pct_change_output <span class="op">/</span> pct_change_param</span>
+<span id="cb11-48"><a href="#cb11-48" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-49"><a href="#cb11-49" aria-hidden="true" tabindex="-1"></a>sensitivity_df <span class="op">=</span> pd.DataFrame.from_dict(</span>
+<span id="cb11-50"><a href="#cb11-50" aria-hidden="true" tabindex="-1"></a>    sensitivities, orient<span class="op">=</span><span class="st">"index"</span>, columns<span class="op">=</span>[<span class="st">"sensitivity"</span>]</span>
+<span id="cb11-51"><a href="#cb11-51" aria-hidden="true" tabindex="-1"></a>).sort_values(<span class="st">"sensitivity"</span>, key<span class="op">=</span><span class="bu">abs</span>, ascending<span class="op">=</span><span class="va">False</span>)</span>
+<span id="cb11-52"><a href="#cb11-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-53"><a href="#cb11-53" aria-hidden="true" tabindex="-1"></a>sensitivity_df</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div id="sensitivity-setup" class="cell-output cell-output-display" data-execution_count="10">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">sensitivity</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">k_cat[1]</th>
+<td>10.537423</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Vmax_off[1]</th>
+<td>-10.523593</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">k_cat[2]</th>
+<td>2.835838</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Vmax_off[2]</th>
+<td>-2.568585</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Km_on[1]</th>
+<td>-0.866866</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Km_off[1]</th>
+<td>0.775844</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">k_cat[3]</th>
+<td>0.514510</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Vmax_off[3]</th>
+<td>-0.507074</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Km_on[2]</th>
+<td>-0.201890</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Km_on[3]</th>
+<td>-0.141425</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">Km_off[2]</th>
+<td>0.111374</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">Km_off[3]</th>
+<td>0.027108</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-sensitivity-plot" class="cell" data-execution_count="12">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>fig, ax <span class="op">=</span> plt.subplots(figsize<span class="op">=</span>(<span class="dv">7</span>, <span class="dv">6</span>))</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>sensitivity_df_sorted <span class="op">=</span> sensitivity_df.reindex(</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>    sensitivity_df[<span class="st">"sensitivity"</span>].<span class="bu">abs</span>().sort_values().index</span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>bar_colors <span class="op">=</span> [<span class="st">"#E64B35"</span> <span class="cf">if</span> v <span class="op">&gt;</span> <span class="dv">0</span> <span class="cf">else</span> <span class="st">"#4DBBD5"</span> <span class="cf">for</span> v <span class="kw">in</span> sensitivity_df_sorted[<span class="st">"sensitivity"</span>]]</span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>ax.barh(sensitivity_df_sorted.index, sensitivity_df_sorted[<span class="st">"sensitivity"</span>], color<span class="op">=</span>bar_colors, alpha<span class="op">=</span><span class="fl">0.85</span>)</span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>ax.axvline(<span class="dv">0</span>, color<span class="op">=</span><span class="st">"grey"</span>, linewidth<span class="op">=</span><span class="fl">0.8</span>)</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>ax.set_xlabel(<span class="st">"Normalised sensitivity coefficient"</span>)</span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>plt.tight_layout()</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>plt.show()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="sensitivity-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="signaling-pathway-ode-final_files/figure-html/sensitivity-plot-output-1.png" width="662" height="566" class="figure-img"></p>
+<figcaption>Normalised local sensitivity coefficients for tier-3 output, ranked by magnitude — the top bar is the model’s ‘weakest link’</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The ranking has a real surprise in it. The two largest sensitivities by a wide margin are tier 1’s own parameters — k_cat[1] at 10.54 and Vmax_off[1] at -10.52 — roughly four times the magnitude of tier 2’s parameters and roughly twenty times tier 3’s, even though the output being measured is tier 3’s activation. That’s the opposite of the naive intuition that the enzyme closest to the readout should matter most.</p>
+<div class="callout callout-style-default callout-important callout-titled" title="The counterintuitive result: tier 1 dominates, not tier 3">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>The counterintuitive result: tier 1 dominates, not tier 3
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The mechanism is worth spelling out because it’s genuinely instructive: tiers 2 and 3 are operating deep in the zero-order regime, which by Section 5’s own result means they sit close to a step function — already near-fully committed to on or off at the reference input. A small percentage change to an already-saturated tier’s own kinetics has little room to move its output further, precisely because it’s already near its ceiling or floor. Tier 1, by contrast, is the one tier still sitting on the graded part of its own response curve at this input level — it’s the actual point in the cascade where continuous information about signal strength is still being encoded before the downstream switches commit. Perturb the encoder and the whole cascade’s decision shifts; perturb an already-decided switch and mostly nothing happens. The near-equal, opposite-signed magnitudes of k_cat[1] and Vmax_off[1] are a good internal consistency check on top of that: increasing the kinase and decreasing its opposing phosphatase should have symmetric effects on tier 1’s own steady state, and they do.</p>
+<p>Practically, this means the best drug target in this model isn’t the terminal kinase most directly tied to the pathway’s biological output — it’s the first tier, the one still translating signal strength into a graded response before the cascade’s downstream switches lock in.</p>
+</div>
+</div>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled" title="Key findings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key findings
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>Ultrasensitivity amplifies sharply across the cascade: Hill coefficients of 7.61, ≥20, and ≥20 for tiers 1 through 3. The tier 2 and 3 fits hit the bound placed on them, meaning the true values are at least that high — by tier 2, the response is already close to a step function.</li>
+<li>The zero-order vs.&nbsp;first-order regime comparison is the assumption check most public-facing explanations of MAPK-style switches skip entirely, and the contrast here is stark: the same topology drops from Hill coefficients ≥20 to 1.08-1.11 — barely above graded — when the Michaelis constants are moved out of the zero-order regime. Ultrasensitivity is overwhelmingly a property of the kinetic regime, not the cascade structure; the structure alone contributes only a small residual steepening (1.08 → 1.11 across tiers).</li>
+<li>The sensitivity ranking held a real surprise: tier 1’s own parameters (k_cat[1], Vmax_off[1]) dominate by roughly 4x over tier 2 and 20x over tier 3 — even though tier 3 is the measured output. The mechanism is that tiers 2 and 3 are already saturated switches with little room left to move, while tier 1 is the one part of the cascade still encoding graded information about signal strength. The best drug target in this model is the first tier, not the one closest to the biological readout.</li>
+<li>This is a simplified, single-phosphorylation-per-tier cascade. The real MAPK pathway uses dual phosphorylation at the MEK and ERK tiers, which produces even sharper ultrasensitivity than shown here — the qualitative results (amplification across tiers, regime-dependence, upstream sensitivity dominance) should hold either way, but the absolute Hill coefficients here are a lower bound on the real pathway’s behaviour, not a literal prediction of it.</li>
+</ul>
+</div>
+</div>
+<p>#SystemsBiology #SignalTransduction #MAPK #ODEModeling #DrugTarget #SciPy #Python #ComputationalBiology</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/Real-peekei\.github\.io\/articles\/");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+<p>© Peekei</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+<p>Built with <a href="https://quarto.org">Quarto</a></p>
+</div>
+  </div>
+</footer>
+
+
+
+
+<script src="../site_libs/quarto-html/zenscroll-min.js"></script>
+</body></html>
