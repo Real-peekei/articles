@@ -12,6 +12,3275 @@
 <generator>quarto-1.9.38</generator>
 <lastBuildDate>Sun, 13 Sep 2026 21:00:00 GMT</lastBuildDate>
 <item>
+  <title>Causal Network Inference from Time-Series Phosphoproteomics: Granger Causality Beyond Correlation</title>
+  <dc:creator>Peekei </dc:creator>
+  <link>https://Real-peekei.github.io/articles/articles/causal-network-inference-final.html</link>
+  <description><![CDATA[ 
+
+
+
+
+<!--
+SETUP — run this once in a terminal before rendering:
+
+  conda create -n causal-network python=3.10 -y
+  conda activate causal-network
+  pip install numpy pandas matplotlib seaborn statsmodels networkx scipy jupyter ipykernel
+  python -m ipykernel install --user --name causal-network --display-name "Python (causal-network)"
+
+Render with:  quarto render causal-network-inference-v1.qmd
+(or click Render in RStudio — it calls Quarto the same way)
+-->
+<section id="motivation" class="level2">
+<h2 class="anchored" data-anchor-id="motivation">1. Motivation</h2>
+<p>The gene co-expression piece in this series asked which genes move together. This one asks a sharper question: when two proteins’ phosphorylation levels rise and fall together over time, does one of them actually drive the other, or are both just downstream of some third, shared trigger? Correlation can’t distinguish these cases — two proteins phosphorylated by the same upstream kinase will correlate strongly with each other even if neither one touches the other directly. Granger causality gives a concrete, testable answer: does knowing protein A’s past values improve the prediction of protein B’s future values, beyond what B’s own past already provides? If yes, A is said to “Granger-cause” B — not proof of biochemical mechanism, but a genuinely stronger claim than correlation, and one that respects time’s arrow in a way a correlation coefficient never can.</p>
+<p>This piece builds a time-series phosphoproteomics dataset with a known causal structure — including a deliberate confound, two proteins that correlate strongly without any direct causal link between them — checks the assumption Granger causality actually depends on (stationarity, routinely skipped in public explanations of the method), and tests every directed pair with multiple-testing correction. It then compares the result against a plain correlation network to see what the causal framing does and doesn’t add, and finishes by re-running the test conditionally on the other proteins, which is the standard remedy for the artefacts a pairwise test produces. The result is more mixed than the method’s reputation suggests, and the mixed parts are the useful part.</p>
+</section>
+<section id="simulated-time-series-dataset-with-known-causal-ground-truth" class="level2">
+<h2 class="anchored" data-anchor-id="simulated-time-series-dataset-with-known-causal-ground-truth">2. Simulated Time-Series Dataset with Known Causal Ground Truth</h2>
+<p>Five proteins, forty timepoints. P1 is an upstream receptor-proximal phosphorylation event responding to a stimulus. P2 and P4 both respond to P1 directly — a genuine shared-cause structure. P3 responds to P2, extending the cascade one step further. P5 is pure noise, causally disconnected from everything, serving as a negative control. The critical pair to watch is P2 and P4: both driven by P1, so both will correlate with each other, but neither one causes the other.</p>
+<div id="cell-simulate-data" class="cell" data-execution_count="1">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb1-1"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> numpy <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> np</span>
+<span id="cb1-2"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> pandas <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> pd</span>
+<span id="cb1-3"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> matplotlib.pyplot <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> plt</span>
+<span id="cb1-4"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> seaborn <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> sns</span>
+<span id="cb1-5"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">from</span> statsmodels.tsa.stattools <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> adfuller, grangercausalitytests</span>
+<span id="cb1-6"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">from</span> statsmodels.stats.multitest <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> multipletests</span>
+<span id="cb1-7"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> networkx <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> nx</span>
+<span id="cb1-8"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> warnings</span>
+<span id="cb1-9">warnings.filterwarnings(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ignore"</span>)</span>
+<span id="cb1-10"></span>
+<span id="cb1-11">sns.set_style(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"whitegrid"</span>)</span>
+<span id="cb1-12">np.random.seed(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2026</span>)</span>
+<span id="cb1-13"></span>
+<span id="cb1-14">T <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">40</span></span>
+<span id="cb1-15">noise_sd <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.4</span></span>
+<span id="cb1-16"></span>
+<span id="cb1-17"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># P1: stimulus-responsive, deliberately non-stationary (a slow decay trend</span></span>
+<span id="cb1-18"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># on top of an initial pulse) — real receptor phosphorylation kinetics</span></span>
+<span id="cb1-19"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># after ligand stimulation, and a genuine test case for Section 4.</span></span>
+<span id="cb1-20">stimulus <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)</span>
+<span id="cb1-21">stimulus[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>:<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">8</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3.0</span>  <span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># a brief stimulation pulse</span></span>
+<span id="cb1-22">P1 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)</span>
+<span id="cb1-23"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> t <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, T):</span>
+<span id="cb1-24">    P1[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.92</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> P1[t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> stimulus[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> np.random.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd)</span>
+<span id="cb1-25"></span>
+<span id="cb1-26"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># P2: driven by P1 at lag 1</span></span>
+<span id="cb1-27">P2 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)</span>
+<span id="cb1-28"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> t <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, T):</span>
+<span id="cb1-29">    P2[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.75</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> P1[t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> np.random.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd)</span>
+<span id="cb1-30"></span>
+<span id="cb1-31"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># P3: driven by P2 at lag 1 — cascade continues</span></span>
+<span id="cb1-32">P3 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)</span>
+<span id="cb1-33"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> t <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, T):</span>
+<span id="cb1-34">    P3[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.70</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> P2[t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> np.random.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd)</span>
+<span id="cb1-35"></span>
+<span id="cb1-36"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># P4: ALSO driven by P1 at lag 1 — a separate branch off the same trigger.</span></span>
+<span id="cb1-37"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># P4 will correlate with P2 (shared ancestor) with no direct causal link.</span></span>
+<span id="cb1-38">P4 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)</span>
+<span id="cb1-39"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> t <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, T):</span>
+<span id="cb1-40">    P4[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.65</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> P1[t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> np.random.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd)</span>
+<span id="cb1-41"></span>
+<span id="cb1-42"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># P5: pure noise, no causal driver at all — negative control</span></span>
+<span id="cb1-43">P5 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.random.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd, T)</span>
+<span id="cb1-44"></span>
+<span id="cb1-45">data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P1"</span>: P1, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P2"</span>: P2, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P3"</span>: P3, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P4"</span>: P4, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P5"</span>: P5})</span>
+<span id="cb1-46">data.index.name <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"timepoint"</span></span>
+<span id="cb1-47">data.head()</span></code></pre></div></div>
+</details>
+<div id="simulate-data" class="cell-output cell-output-display" data-execution_count="1">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">P1</th>
+<th data-quarto-table-cell-role="th">P2</th>
+<th data-quarto-table-cell-role="th">P3</th>
+<th data-quarto-table-cell-role="th">P4</th>
+<th data-quarto-table-cell-role="th">P5</th>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">timepoint</th>
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th"></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">0</th>
+<td>0.000000</td>
+<td>0.000000</td>
+<td>0.000000</td>
+<td>0.000000</td>
+<td>0.625411</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>-0.172687</td>
+<td>-0.173354</td>
+<td>-0.075520</td>
+<td>0.172264</td>
+<td>0.651062</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">2</th>
+<td>-0.716022</td>
+<td>-0.133566</td>
+<td>0.044919</td>
+<td>0.359908</td>
+<td>-0.605004</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">3</th>
+<td>2.465888</td>
+<td>-0.482410</td>
+<td>-0.138216</td>
+<td>-0.321731</td>
+<td>0.065482</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>5.263323</td>
+<td>2.440120</td>
+<td>-0.048574</td>
+<td>2.118521</td>
+<td>-0.043552</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-timeseries-plot" class="cell" data-execution_count="2">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb2-1">fig, ax <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> plt.subplots(figsize<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">9</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5</span>))</span>
+<span id="cb2-2">colors <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> {<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P1"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P2"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P3"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#00A087"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P4"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#4DBBD5"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P5"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#8491B4"</span>}</span>
+<span id="cb2-3"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> col <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> data.columns:</span>
+<span id="cb2-4">    ax.plot(data.index, data[col], label<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>col, color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>colors[col], linewidth<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.6</span>)</span>
+<span id="cb2-5">ax.set_xlabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Timepoint"</span>)</span>
+<span id="cb2-6">ax.set_ylabel(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Phospho-intensity (arbitrary units)"</span>)</span>
+<span id="cb2-7">ax.legend()</span>
+<span id="cb2-8">plt.tight_layout()</span>
+<span id="cb2-9">plt.show()</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="timeseries-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/causal-network-inference-final_files/figure-html/timeseries-plot-output-1.png" width="855" height="470" class="figure-img"></p>
+<figcaption>Simulated phosphoproteomics time courses — P1 is the stimulus-responsive trigger, P2/P4 both respond to P1 directly, P3 extends the cascade from P2, P5 is uncaused noise</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The true causal structure — P1→P2, P2→P3, P1→P4 — isn’t visible from the plot alone. P2 and P4 will very plausibly look similar to each other in this figure, precisely because they share a cause. Distinguishing “correlated because of a shared driver” from “one drives the other” is exactly what the rest of this piece works through.</p>
+</section>
+<section id="preprocessing" class="level2">
+<h2 class="anchored" data-anchor-id="preprocessing">3. Preprocessing</h2>
+<pre class="{bash}"><code>#| eval: false
+# Reference only — shown for the bash-preprocessing step the brief calls
+# for; the simulated dataset above needs none of this since it's already
+# a clean numeric matrix. Real PRIDE phosphoproteomics submissions are
+# typically wide-format MaxQuant or Proteome Discoverer output tables
+# with per-run batch-specific column headers that need normalising
+# before any time-series analysis can treat columns as timepoints.
+
+# Standardise batch-specific column headers (e.g. "Intensity.Run1_T0min")
+# down to a consistent "T0", "T5", "T10"... convention
+awk -F'\t' 'NR==1 {
+  for (i=1; i&lt;=NF; i++) {
+    gsub(/Intensity\.Run[0-9]+_/, "", $i)
+  }
+} { print }' OFS='\t' phospho_raw.tsv &gt; phospho_renamed.tsv
+
+# Drop rows (phosphosites) with excessive missingness across timepoints
+# before they reach Python — a common MS proteomics QC step
+awk -F'\t' 'NR==1 || (gsub(/NA/,"NA")==0 || gsub(/NA/,"NA") &lt; NF*0.3)' \
+  phospho_renamed.tsv &gt; phospho_filtered.tsv</code></pre>
+<div id="cell-preprocessing" class="cell" data-execution_count="3">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb4-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># For a real dataset: log2 transform (mass spec intensities are strongly</span></span>
+<span id="cb4-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># right-skewed) and z-score each protein's time series so that proteins</span></span>
+<span id="cb4-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># measured on very different intensity scales are comparable. Applied</span></span>
+<span id="cb4-4"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># here for completeness even though the simulated data is already on a</span></span>
+<span id="cb4-5"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># comparable scale.</span></span>
+<span id="cb4-6">data_scaled <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> (data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> data.mean()) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> data.std()</span>
+<span id="cb4-7">data_scaled.head()</span></code></pre></div></div>
+</details>
+<div id="preprocessing" class="cell-output cell-output-display" data-execution_count="3">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">P1</th>
+<th data-quarto-table-cell-role="th">P2</th>
+<th data-quarto-table-cell-role="th">P3</th>
+<th data-quarto-table-cell-role="th">P4</th>
+<th data-quarto-table-cell-role="th">P5</th>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">timepoint</th>
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th"></th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">0</th>
+<td>-1.198402</td>
+<td>-1.176762</td>
+<td>-1.110425</td>
+<td>-1.203347</td>
+<td>1.297945</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>-1.248220</td>
+<td>-1.242962</td>
+<td>-1.148592</td>
+<td>-1.129236</td>
+<td>1.353017</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">2</th>
+<td>-1.404966</td>
+<td>-1.227768</td>
+<td>-1.087723</td>
+<td>-1.048509</td>
+<td>-1.343692</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">3</th>
+<td>-0.487023</td>
+<td>-1.360984</td>
+<td>-1.180278</td>
+<td>-1.341760</td>
+<td>0.095807</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>0.320002</td>
+<td>-0.244931</td>
+<td>-1.134974</td>
+<td>-0.291929</td>
+<td>-0.138284</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+</section>
+<section id="assumption-check-stationarity" class="level2">
+<h2 class="anchored" data-anchor-id="assumption-check-stationarity">4. Assumption Check: Stationarity</h2>
+<p>Granger causality is a statement about linear predictive relationships between time series, and the standard test for it assumes the series involved are stationary — their statistical properties (mean, variance) don’t drift over time.</p>
+<div class="callout callout-style-default callout-important callout-titled" title="Non-stationary series can manufacture fake causality">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Non-stationary series can manufacture fake causality
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>A series with a strong trend can produce Granger-significant results between completely unrelated variables, purely because both are drifting in the same direction over time, not because either one is actually informative about the other. This is a real, common failure mode in applied Granger causality work, not a theoretical footnote, and checking for it is not optional — P1 in this simulation was deliberately built with a persistent trend for exactly this reason, so the check below has something real to catch.</p>
+</div>
+</div>
+<div id="cell-stationarity-check" class="cell" data-execution_count="4">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb5-1"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> adf_report(series, name):</span>
+<span id="cb5-2">    result <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> adfuller(series.dropna())</span>
+<span id="cb5-3">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> {<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"protein"</span>: name, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"adf_stat"</span>: result[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>], <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>: result[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]}</span>
+<span id="cb5-4"></span>
+<span id="cb5-5">stationarity_results <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame([</span>
+<span id="cb5-6">    adf_report(data_scaled[col], col) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> col <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> data_scaled.columns</span>
+<span id="cb5-7">])</span>
+<span id="cb5-8">stationarity_results</span></code></pre></div></div>
+</details>
+<div id="stationarity-check" class="cell-output cell-output-display" data-execution_count="4">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">protein</th>
+<th data-quarto-table-cell-role="th">adf_stat</th>
+<th data-quarto-table-cell-role="th">p_value</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">0</th>
+<td>P1</td>
+<td>-2.697444</td>
+<td>7.448153e-02</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>P2</td>
+<td>-2.466886</td>
+<td>1.237406e-01</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">2</th>
+<td>P3</td>
+<td>-1.538562</td>
+<td>5.143566e-01</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">3</th>
+<td>P4</td>
+<td>-1.957007</td>
+<td>3.057364e-01</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>P5</td>
+<td>-6.914732</td>
+<td>1.187457e-09</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="differencing" class="cell" data-execution_count="5">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb6-1"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># Difference any series the ADF test flags as non-stationary (p &gt;= 0.05)</span></span>
+<span id="cb6-2"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># before proceeding — testing Granger causality on a non-stationary</span></span>
+<span id="cb6-3"><span class="co" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;"># series risks exactly the spurious-relationship problem described above.</span></span>
+<span id="cb6-4">non_stationary <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> stationarity_results.loc[stationarity_results[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.05</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"protein"</span>].tolist()</span>
+<span id="cb6-5"></span>
+<span id="cb6-6">data_for_gc <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> data_scaled.copy()</span>
+<span id="cb6-7"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> col <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> non_stationary:</span>
+<span id="cb6-8">    data_for_gc[col] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> data_scaled[col].diff()</span>
+<span id="cb6-9"></span>
+<span id="cb6-10">data_for_gc <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> data_for_gc.dropna()</span>
+<span id="cb6-11"></span>
+<span id="cb6-12"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Series differenced for non-stationarity: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>non_stationary <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> non_stationary <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'none'</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb6-13"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Timepoints remaining after differencing: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(data_for_gc)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Series differenced for non-stationarity: ['P1', 'P2', 'P3', 'P4']
+Timepoints remaining after differencing: 39</code></pre>
+</div>
+</div>
+<p>The ADF test flagged four of the five series as non-stationary: P1 (p = 0.074), P2 (p = 0.124), P3 (p = 0.514), and P4 (p = 0.306). Only P5, the pure-noise control, came back clearly stationary (p = 1.2e-9). That split is what the simulation’s structure predicts: P1’s high persistence (an AR coefficient of 0.92) means it wanders rather than reverting to a fixed mean, and P2, P3, and P4 all inherit that wandering because each is a lagged linear function of something downstream of P1. One caution on reading the individual p-values: with only 40 timepoints the ADF test has limited power, so the differences among 0.07, 0.12, 0.31, and 0.51 shouldn’t be over-interpreted. What matters is the clear separation between the four wandering series and the one stationary control. All four were first-differenced before any Granger test ran, leaving 39 usable timepoints. Skipping that step is how spurious “causal” relationships between trending, unrelated variables end up in a published network.</p>
+</section>
+<section id="granger-causality-testing" class="level2">
+<h2 class="anchored" data-anchor-id="granger-causality-testing">5. Granger Causality Testing</h2>
+<p>Granger causality is directional, so every ordered pair needs its own test — does A cause B is a separate question from does B cause A, and both need answering independently. With 5 proteins, that’s 20 directed pairs. Testing at multiple lags and taking the strongest-supported lag per pair, followed by multiple-testing correction across all 20 tests, keeps the resulting network from being inflated by chance findings — exactly the same discipline any of the earlier pieces in this series applied to differential expression or pathway enrichment.</p>
+<div id="cell-granger-tests" class="cell" data-execution_count="6">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb8-1">proteins <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> data_for_gc.columns.tolist()</span>
+<span id="cb8-2">max_lag <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span></span>
+<span id="cb8-3">alpha <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.05</span></span>
+<span id="cb8-4"></span>
+<span id="cb8-5">results <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> []</span>
+<span id="cb8-6">errors_seen <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">set</span>()</span>
+<span id="cb8-7"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> target <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> proteins:</span>
+<span id="cb8-8">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> source <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> proteins:</span>
+<span id="cb8-9">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> target <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> source:</span>
+<span id="cb8-10">            <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">continue</span></span>
+<span id="cb8-11">        pair_data <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> data_for_gc[[target, source]].values</span>
+<span id="cb8-12">        error_msg <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">None</span></span>
+<span id="cb8-13">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">try</span>:</span>
+<span id="cb8-14">            gc_result <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> grangercausalitytests(pair_data, max_lag)</span>
+<span id="cb8-15">            best_lag <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">min</span>(</span>
+<span id="cb8-16">                <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, max_lag <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>),</span>
+<span id="cb8-17">                key<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">lambda</span> lag: gc_result[lag][<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>][<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ssr_ftest"</span>][<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]</span>
+<span id="cb8-18">            )</span>
+<span id="cb8-19">            best_p <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> gc_result[best_lag][<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>][<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ssr_ftest"</span>][<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]</span>
+<span id="cb8-20">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">except</span> <span class="pp" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">Exception</span> <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> e:</span>
+<span id="cb8-21">            best_lag, best_p <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.nan, <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.0</span></span>
+<span id="cb8-22">            error_msg <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">type</span>(e)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">__name__</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>e<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span></span>
+<span id="cb8-23">            errors_seen.add(error_msg)</span>
+<span id="cb8-24">        results.append({</span>
+<span id="cb8-25">            <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"source"</span>: source, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"target"</span>: target,</span>
+<span id="cb8-26">            <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"best_lag"</span>: best_lag, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>: best_p, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"error"</span>: error_msg</span>
+<span id="cb8-27">        })</span>
+<span id="cb8-28"></span>
+<span id="cb8-29"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> errors_seen:</span>
+<span id="cb8-30">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">sum</span>(r[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">'error'</span>] <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">is</span> <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">not</span> <span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">None</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> r <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> results)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> of </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(results)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> pairs raised an exception."</span>)</span>
+<span id="cb8-31">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Distinct error message(s) seen:"</span>)</span>
+<span id="cb8-32">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> err <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> errors_seen:</span>
+<span id="cb8-33">        <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" -"</span>, err)</span>
+<span id="cb8-34"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span>:</span>
+<span id="cb8-35">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"All pairs tested without error."</span>)</span>
+<span id="cb8-36"></span>
+<span id="cb8-37">gc_df <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame(results)</span>
+<span id="cb8-38">gc_df[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> multipletests(gc_df[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>], method<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"fdr_bh"</span>)[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]</span>
+<span id="cb8-39">gc_df[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"significant"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> gc_df[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> alpha</span>
+<span id="cb8-40">gc_df.sort_values(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>).head(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>All pairs tested without error.</code></pre>
+</div>
+<div id="granger-tests" class="cell-output cell-output-display" data-execution_count="6">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">source</th>
+<th data-quarto-table-cell-role="th">target</th>
+<th data-quarto-table-cell-role="th">best_lag</th>
+<th data-quarto-table-cell-role="th">p_value</th>
+<th data-quarto-table-cell-role="th">error</th>
+<th data-quarto-table-cell-role="th">p_adj</th>
+<th data-quarto-table-cell-role="th">significant</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>P1</td>
+<td>P2</td>
+<td>3</td>
+<td>8.472153e-14</td>
+<td>None</td>
+<td>1.694431e-12</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">12</th>
+<td>P1</td>
+<td>P4</td>
+<td>1</td>
+<td>2.196809e-13</td>
+<td>None</td>
+<td>2.196809e-12</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">9</th>
+<td>P2</td>
+<td>P3</td>
+<td>3</td>
+<td>2.129742e-09</td>
+<td>None</td>
+<td>1.419828e-08</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">10</th>
+<td>P4</td>
+<td>P3</td>
+<td>3</td>
+<td>4.868481e-07</td>
+<td>None</td>
+<td>2.434240e-06</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">8</th>
+<td>P1</td>
+<td>P3</td>
+<td>3</td>
+<td>2.918103e-06</td>
+<td>None</td>
+<td>1.167241e-05</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">19</th>
+<td>P4</td>
+<td>P5</td>
+<td>1</td>
+<td>1.563669e-03</td>
+<td>None</td>
+<td>5.212231e-03</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">13</th>
+<td>P2</td>
+<td>P4</td>
+<td>2</td>
+<td>6.071137e-03</td>
+<td>None</td>
+<td>1.734610e-02</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">16</th>
+<td>P1</td>
+<td>P5</td>
+<td>3</td>
+<td>9.669440e-03</td>
+<td>None</td>
+<td>2.417360e-02</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">17</th>
+<td>P2</td>
+<td>P5</td>
+<td>2</td>
+<td>3.791811e-02</td>
+<td>None</td>
+<td>8.426247e-02</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">14</th>
+<td>P3</td>
+<td>P4</td>
+<td>3</td>
+<td>7.490447e-02</td>
+<td>None</td>
+<td>1.498089e-01</td>
+<td>False</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-granger-significant-edges" class="cell" data-execution_count="7">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb10-1">significant_edges <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> gc_df[gc_df[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"significant"</span>]].sort_values(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>)</span>
+<span id="cb10-2"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Significant directed edges after FDR correction: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(significant_edges)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> of </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">len</span>(gc_df)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> pairs tested"</span>)</span>
+<span id="cb10-3">significant_edges</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Significant directed edges after FDR correction: 8 of 20 pairs tested</code></pre>
+</div>
+<div id="granger-significant-edges" class="cell-output cell-output-display" data-execution_count="7">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">source</th>
+<th data-quarto-table-cell-role="th">target</th>
+<th data-quarto-table-cell-role="th">best_lag</th>
+<th data-quarto-table-cell-role="th">p_value</th>
+<th data-quarto-table-cell-role="th">error</th>
+<th data-quarto-table-cell-role="th">p_adj</th>
+<th data-quarto-table-cell-role="th">significant</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>P1</td>
+<td>P2</td>
+<td>3</td>
+<td>8.472153e-14</td>
+<td>None</td>
+<td>1.694431e-12</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">12</th>
+<td>P1</td>
+<td>P4</td>
+<td>1</td>
+<td>2.196809e-13</td>
+<td>None</td>
+<td>2.196809e-12</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">9</th>
+<td>P2</td>
+<td>P3</td>
+<td>3</td>
+<td>2.129742e-09</td>
+<td>None</td>
+<td>1.419828e-08</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">10</th>
+<td>P4</td>
+<td>P3</td>
+<td>3</td>
+<td>4.868481e-07</td>
+<td>None</td>
+<td>2.434240e-06</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">8</th>
+<td>P1</td>
+<td>P3</td>
+<td>3</td>
+<td>2.918103e-06</td>
+<td>None</td>
+<td>1.167241e-05</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">19</th>
+<td>P4</td>
+<td>P5</td>
+<td>1</td>
+<td>1.563669e-03</td>
+<td>None</td>
+<td>5.212231e-03</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">13</th>
+<td>P2</td>
+<td>P4</td>
+<td>2</td>
+<td>6.071137e-03</td>
+<td>None</td>
+<td>1.734610e-02</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">16</th>
+<td>P1</td>
+<td>P5</td>
+<td>3</td>
+<td>9.669440e-03</td>
+<td>None</td>
+<td>2.417360e-02</td>
+<td>True</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<p>Eight of the 20 directed pairs survived FDR correction, which is more than the three true edges built into the simulation. Sorting them against the known ground truth:</p>
+<ul>
+<li><strong>Recovered true edges (3):</strong> P1→P2 (p_adj = 1.7e-12), P1→P4 (2.2e-12), and P2→P3 (1.4e-8). All three are the strongest results in the table by many orders of magnitude.</li>
+<li><strong>A true indirect path (1):</strong> P1→P3 (p_adj = 1.2e-5). P1 doesn’t drive P3 directly in the simulation, but it does drive P2, which drives P3. A bivariate test asks only whether P1’s past helps predict P3’s future, and it does, through the mediator. That’s correct behaviour for the test, but it shows that bivariate Granger causality can’t tell a direct edge from a mediated one.</li>
+<li><strong>Edges with no direct counterpart in the simulation (4):</strong> P4→P3 (2.4e-6), P2→P4 (0.017), P4→P5 (0.005), and P1→P5 (0.024). The first two are discussed in Section 7. The last two involve P5, which has no causal parents at all, so they are unambiguous false positives, and they survived a 5% FDR threshold.</li>
+</ul>
+<p>The P5 false positives point to a specific weakness in how this analysis was set up. Each pair was tested at lags 1 through 3 and the smallest p-value was kept, but the FDR correction was applied only across the 20 pairs, not across the 60 pair-and-lag tests underneath them. Taking the best of three lags gives every pair three chances to look significant, and nothing in the correction accounts for that. The nominal 5% FDR threshold is therefore optimistic here. A cleaner design would either correct across all pair-and-lag combinations or fix the lag in advance using an information criterion such as AIC.</p>
+</section>
+<section id="network-construction-and-hub-analysis" class="level2">
+<h2 class="anchored" data-anchor-id="network-construction-and-hub-analysis">6. Network Construction and Hub Analysis</h2>
+<div id="cell-build-graph" class="cell" data-execution_count="8">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb12-1">G <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> nx.DiGraph()</span>
+<span id="cb12-2">G.add_nodes_from(proteins)</span>
+<span id="cb12-3"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> _, row <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> significant_edges.iterrows():</span>
+<span id="cb12-4">    G.add_edge(row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"source"</span>], row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"target"</span>], weight<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=-</span>np.log10(row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>]))</span>
+<span id="cb12-5"></span>
+<span id="cb12-6">in_centrality <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> nx.in_degree_centrality(G)</span>
+<span id="cb12-7">out_centrality <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> nx.out_degree_centrality(G)</span>
+<span id="cb12-8"></span>
+<span id="cb12-9">centrality_df <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({</span>
+<span id="cb12-10">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"protein"</span>: proteins,</span>
+<span id="cb12-11">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"in_degree"</span>: [G.in_degree(p) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> p <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> proteins],</span>
+<span id="cb12-12">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"out_degree"</span>: [G.out_degree(p) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> p <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> proteins],</span>
+<span id="cb12-13">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"in_centrality"</span>: [in_centrality[p] <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> p <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> proteins],</span>
+<span id="cb12-14">    <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"out_centrality"</span>: [out_centrality[p] <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> p <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> proteins],</span>
+<span id="cb12-15">}).sort_values(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"out_degree"</span>, ascending<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span>)</span>
+<span id="cb12-16"></span>
+<span id="cb12-17">centrality_df</span></code></pre></div></div>
+</details>
+<div id="build-graph" class="cell-output cell-output-display" data-execution_count="8">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">protein</th>
+<th data-quarto-table-cell-role="th">in_degree</th>
+<th data-quarto-table-cell-role="th">out_degree</th>
+<th data-quarto-table-cell-role="th">in_centrality</th>
+<th data-quarto-table-cell-role="th">out_centrality</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">0</th>
+<td>P1</td>
+<td>0</td>
+<td>4</td>
+<td>0.00</td>
+<td>1.0</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>P2</td>
+<td>1</td>
+<td>2</td>
+<td>0.25</td>
+<td>0.5</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">3</th>
+<td>P4</td>
+<td>2</td>
+<td>2</td>
+<td>0.50</td>
+<td>0.5</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">2</th>
+<td>P3</td>
+<td>3</td>
+<td>0</td>
+<td>0.75</td>
+<td>0.0</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>P5</td>
+<td>2</td>
+<td>0</td>
+<td>0.50</td>
+<td>0.0</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-network-plot" class="cell" data-execution_count="9">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb13-1">fig, ax <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> plt.subplots(figsize<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">7</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6</span>))</span>
+<span id="cb13-2">pos <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> nx.spring_layout(G, seed<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">2026</span>, k<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.2</span>)</span>
+<span id="cb13-3"></span>
+<span id="cb13-4">node_sizes <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> [<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">800</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">600</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> G.out_degree(n) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> n <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> G.nodes()]</span>
+<span id="cb13-5">nx.draw_networkx_nodes(G, pos, node_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#3C5488"</span>, node_size<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>node_sizes, alpha<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.85</span>, ax<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ax)</span>
+<span id="cb13-6">nx.draw_networkx_labels(G, pos, font_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"white"</span>, font_weight<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bold"</span>, ax<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ax)</span>
+<span id="cb13-7">nx.draw_networkx_edges(G, pos, edge_color<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"#E64B35"</span>, arrows<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">True</span>,</span>
+<span id="cb13-8">                        arrowsize<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">20</span>, connectionstyle<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"arc3,rad=0.1"</span>, ax<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ax)</span>
+<span id="cb13-9">ax.axis(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"off"</span>)</span>
+<span id="cb13-10">plt.tight_layout()</span>
+<span id="cb13-11">plt.show()</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="network-plot" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/causal-network-inference-final_files/figure-html/network-plot-output-1.png" width="662" height="566" class="figure-img"></p>
+<figcaption>Granger-causal directed network — arrow direction is the inferred causal direction, node size scales with out-degree (how many downstream proteins each one causally drives)</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>P1 comes out as the clear upstream hub: out-degree 4, in-degree 0. Nothing in the network drives it, and it drives everything else that has any incoming edge. That matches the ground truth, since P1 is the stimulus-responsive trigger at the top of the cascade. P3 is the mirror image, with in-degree 3 and out-degree 0, a pure downstream sink, which also matches the simulation because nothing depends on P3. So the coarse topology (who sits at the top, who sits at the bottom) was recovered correctly even though several individual edges in the middle were not.</p>
+<p>The imperfections are concentrated in the middle of the network. P4 ends up with out-degree 2 (to P3 and P5), and neither edge reflects a direct link in the simulation. P5 has in-degree 2 when its true in-degree is 0. If this network were read edge by edge, it would overstate P4’s role as a regulator. Read at the level of “which proteins are upstream and which are downstream,” it is reliable.</p>
+</section>
+<section id="correlation-vs.-granger-causality-what-each-actually-got-right" class="level2">
+<h2 class="anchored" data-anchor-id="correlation-vs.-granger-causality-what-each-actually-got-right">7. Correlation vs.&nbsp;Granger Causality: What Each Actually Got Right</h2>
+<p>A fair comparison needs the naive version of this analysis run on the same data: a plain pairwise correlation network, no lag, no direction, no stationarity check. The question is what the causal framing adds over it, not whether it wins on every count.</p>
+<div id="cell-correlation-network" class="cell" data-execution_count="10">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb14-1">corr_matrix <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> data_scaled.corr()</span>
+<span id="cb14-2"></span>
+<span id="cb14-3">corr_edges <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> []</span>
+<span id="cb14-4"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> i, p1 <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">enumerate</span>(proteins):</span>
+<span id="cb14-5">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> p2 <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> proteins[i<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>:]:</span>
+<span id="cb14-6">        corr_edges.append({<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"protein_1"</span>: p1, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"protein_2"</span>: p2, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"correlation"</span>: corr_matrix.loc[p1, p2]})</span>
+<span id="cb14-7"></span>
+<span id="cb14-8">corr_df <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame(corr_edges).sort_values(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"correlation"</span>, key<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">abs</span>, ascending<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">False</span>)</span>
+<span id="cb14-9">corr_df</span></code></pre></div></div>
+</details>
+<div id="correlation-network" class="cell-output cell-output-display" data-execution_count="10">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">protein_1</th>
+<th data-quarto-table-cell-role="th">protein_2</th>
+<th data-quarto-table-cell-role="th">correlation</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">5</th>
+<td>P2</td>
+<td>P4</td>
+<td>0.986830</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">0</th>
+<td>P1</td>
+<td>P2</td>
+<td>0.947636</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">2</th>
+<td>P1</td>
+<td>P4</td>
+<td>0.946784</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">7</th>
+<td>P3</td>
+<td>P4</td>
+<td>0.928900</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>P2</td>
+<td>P3</td>
+<td>0.914198</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>P1</td>
+<td>P3</td>
+<td>0.826981</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">3</th>
+<td>P1</td>
+<td>P5</td>
+<td>-0.205557</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">6</th>
+<td>P2</td>
+<td>P5</td>
+<td>-0.202828</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">9</th>
+<td>P4</td>
+<td>P5</td>
+<td>-0.190433</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">8</th>
+<td>P3</td>
+<td>P5</td>
+<td>-0.038373</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-correlation-heatmap" class="cell" data-execution_count="11">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb15" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb15-1">fig, ax <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> plt.subplots(figsize<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">6</span>, <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5</span>))</span>
+<span id="cb15-2">sns.heatmap(corr_matrix, annot<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">True</span>, fmt<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">".2f"</span>, cmap<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"RdBu_r"</span>, center<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>,</span>
+<span id="cb15-3">            vmin<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, vmax<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, ax<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>ax)</span>
+<span id="cb15-4">plt.tight_layout()</span>
+<span id="cb15-5">plt.show()</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-display">
+<div id="correlation-heatmap" class="quarto-figure quarto-figure-center anchored">
+<figure class="figure">
+<p><img src="https://Real-peekei.github.io/articles/articles/causal-network-inference-final_files/figure-html/correlation-heatmap-output-1.png" width="553" height="470" class="figure-img"></p>
+<figcaption>Pairwise correlation matrix — undirected, and blind to whether a correlation reflects direct causation, a shared upstream cause, or coincidence</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div id="comparison-table" class="cell" data-execution_count="12">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb16-1">strong_corr_pairs <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">set</span>()</span>
+<span id="cb16-2"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> _, row <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> corr_df.iterrows():</span>
+<span id="cb16-3">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">abs</span>(row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"correlation"</span>]) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.5</span>:</span>
+<span id="cb16-4">        strong_corr_pairs.add(<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">frozenset</span>([row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"protein_1"</span>], row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"protein_2"</span>]]))</span>
+<span id="cb16-5"></span>
+<span id="cb16-6">granger_pairs <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">set</span>()</span>
+<span id="cb16-7"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> _, row <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> significant_edges.iterrows():</span>
+<span id="cb16-8">    granger_pairs.add(<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">frozenset</span>([row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"source"</span>], row[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"target"</span>]]))</span>
+<span id="cb16-9"></span>
+<span id="cb16-10">only_in_correlation <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> strong_corr_pairs <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> granger_pairs</span>
+<span id="cb16-11">only_in_granger <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> granger_pairs <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> strong_corr_pairs</span>
+<span id="cb16-12">in_both <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> strong_corr_pairs <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;</span> granger_pairs</span>
+<span id="cb16-13"></span>
+<span id="cb16-14"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Pairs strongly correlated but with no significant Granger-causal edge in either direction:"</span>)</span>
+<span id="cb16-15"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> pair <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> only_in_correlation:</span>
+<span id="cb16-16">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" "</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" - "</span>.join(pair))</span>
+<span id="cb16-17"></span>
+<span id="cb16-18"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">Pairs with a significant Granger-causal edge that were NOT strongly correlated:"</span>)</span>
+<span id="cb16-19"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> pair <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> only_in_granger:</span>
+<span id="cb16-20">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" "</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" - "</span>.join(pair))</span>
+<span id="cb16-21"></span>
+<span id="cb16-22"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span><span class="ch" style="color: #20794D;
+background-color: null;
+font-style: inherit;">\n</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">Pairs flagged by both methods:"</span>)</span>
+<span id="cb16-23"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> pair <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> in_both:</span>
+<span id="cb16-24">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" "</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" - "</span>.join(pair))</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Pairs strongly correlated but with no significant Granger-causal edge in either direction:
+
+Pairs with a significant Granger-causal edge that were NOT strongly correlated:
+  P5 - P1
+  P5 - P4
+
+Pairs flagged by both methods:
+  P4 - P2
+  P4 - P3
+  P3 - P1
+  P2 - P1
+  P2 - P3
+  P4 - P1</code></pre>
+</div>
+</div>
+<p>The comparison does not show what the method’s reputation would lead you to expect, so the accurate reading matters more than the flattering one.</p>
+<p>The first list, pairs that were strongly correlated but had no Granger edge in either direction, is empty. Every correlated pair also got a Granger edge, including the confounded pair P2–P4. The second list shows Granger flagging two pairs that correlation did not: P5–P1 and P5–P4, both involving the pure-noise control. On the narrow question of which pairs are connected at all, then, the causal framing added no correct exclusions and two false additions. Bivariate Granger did not “catch” the confound at the 5% FDR threshold.</p>
+<p>It did two other things correlation cannot do:</p>
+<ul>
+<li><strong>Ranking.</strong> The single strongest correlation in the matrix is P2–P4 (r = 0.987), the confounded pair, higher than any of the three true edges (P1–P2 at 0.948, P1–P4 at 0.947, P2–P3 at 0.914). By correlation, the confound is the most convincing “relationship” in the dataset. By Granger evidence, the three smallest adjusted p-values (all below 1e-7) belong to exactly the three true edges, while P2→P4 sits seventh of eight significant edges at p_adj = 0.017, roughly ten orders of magnitude weaker than P1→P2. Read as a ranking rather than a yes/no threshold, the Granger output separated true edges from the confound far better than correlation did.</li>
+<li><strong>Direction.</strong> All three true edges came out with the correct direction (P1→P2, P1→P4, P2→P3). A correlation matrix is symmetric and has no way to express that.</li>
+</ul>
+<p>The likely explanation for why P2→P4 cleared the threshold at all is P1’s persistence. P1 has an AR coefficient of 0.92, so its recent past is a good proxy for its present. Because P2 and P4 both track P1, P2’s lagged history carries usable information about the P1 trajectory that drives P4, which a bivariate test cannot distinguish from a direct P2→P4 effect. That is a hypothesis about this simulation, not something the bivariate test demonstrates. Section 8 tests it directly by conditioning on the other proteins.</p>
+</section>
+<section id="conditioning-on-the-other-proteins" class="level2">
+<h2 class="anchored" data-anchor-id="conditioning-on-the-other-proteins">8. Conditioning on the Other Proteins</h2>
+<p>The bivariate test asks whether A helps predict B on its own. A conditional test asks whether A still helps predict B after the past of every other protein has already been taken into account. Fitting all five series as a single vector autoregression (VAR) and testing each edge inside that joint model does exactly that, and it is the standard remedy for the shared-cause artefact suspected in Section 7: if P2’s apparent effect on P4 is only P2 acting as a proxy for P1, it should disappear once P1’s history is in the model.</p>
+<p>This version also repairs the lag-selection weakness noted in Section 5. One lag order is chosen for the whole model by AIC, so there is no best-of-three-lags step, and the FDR correction covers the 20 tests actually performed.</p>
+<div id="cell-conditional-granger" class="cell" data-execution_count="13">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb18-1"><span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">from</span> statsmodels.tsa.api <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">import</span> VAR</span>
+<span id="cb18-2"></span>
+<span id="cb18-3">var_model <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> VAR(data_for_gc)</span>
+<span id="cb18-4">order_selection <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> var_model.select_order(maxlags<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>)</span>
+<span id="cb18-5">selected_lag <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">max</span>(order_selection.selected_orders[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"aic"</span>], <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb18-6">var_fit <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> var_model.fit(selected_lag)</span>
+<span id="cb18-7"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"Lag order selected by AIC (floor of 1): </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>selected_lag<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb18-8"></span>
+<span id="cb18-9">cond_results <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> []</span>
+<span id="cb18-10">cond_errors <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">set</span>()</span>
+<span id="cb18-11"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> target <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> proteins:</span>
+<span id="cb18-12">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> source <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> proteins:</span>
+<span id="cb18-13">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> target <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> source:</span>
+<span id="cb18-14">            <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">continue</span></span>
+<span id="cb18-15">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">try</span>:</span>
+<span id="cb18-16">            test <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> var_fit.test_causality(target, [source], kind<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"f"</span>)</span>
+<span id="cb18-17">            p_val <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> test.pvalue</span>
+<span id="cb18-18">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">except</span> <span class="pp" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">Exception</span> <span class="im" style="color: #00769E;
+background-color: null;
+font-style: inherit;">as</span> e:</span>
+<span id="cb18-19">            p_val <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1.0</span></span>
+<span id="cb18-20">            cond_errors.add(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">type</span>(e)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span><span class="va" style="color: #111111;
+background-color: null;
+font-style: inherit;">__name__</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>e<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb18-21">        cond_results.append({<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"source"</span>: source, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"target"</span>: target, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>: p_val})</span>
+<span id="cb18-22"></span>
+<span id="cb18-23"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> cond_errors:</span>
+<span id="cb18-24">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Errors raised during conditional testing:"</span>)</span>
+<span id="cb18-25">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> err <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> cond_errors:</span>
+<span id="cb18-26">        <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">" -"</span>, err)</span>
+<span id="cb18-27"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">else</span>:</span>
+<span id="cb18-28">    <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"All conditional tests ran without error."</span>)</span>
+<span id="cb18-29"></span>
+<span id="cb18-30">cond_df <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame(cond_results)</span>
+<span id="cb18-31">cond_df[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> multipletests(cond_df[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>], method<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"fdr_bh"</span>)[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>]</span>
+<span id="cb18-32">cond_df[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"significant"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> cond_df[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> alpha</span>
+<span id="cb18-33">cond_df.sort_values(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>).head(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">10</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Lag order selected by AIC (floor of 1): 3
+All conditional tests ran without error.</code></pre>
+</div>
+<div id="conditional-granger" class="cell-output cell-output-display" data-execution_count="13">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">source</th>
+<th data-quarto-table-cell-role="th">target</th>
+<th data-quarto-table-cell-role="th">p_value</th>
+<th data-quarto-table-cell-role="th">p_adj</th>
+<th data-quarto-table-cell-role="th">significant</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>P1</td>
+<td>P2</td>
+<td>6.179796e-23</td>
+<td>1.235959e-21</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">12</th>
+<td>P1</td>
+<td>P4</td>
+<td>2.804830e-21</td>
+<td>2.804830e-20</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">19</th>
+<td>P4</td>
+<td>P5</td>
+<td>1.201440e-06</td>
+<td>8.009598e-06</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">17</th>
+<td>P2</td>
+<td>P5</td>
+<td>4.490079e-06</td>
+<td>2.245040e-05</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">16</th>
+<td>P1</td>
+<td>P5</td>
+<td>3.737513e-03</td>
+<td>1.495005e-02</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">9</th>
+<td>P2</td>
+<td>P3</td>
+<td>7.020082e-03</td>
+<td>2.340027e-02</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">2</th>
+<td>P4</td>
+<td>P1</td>
+<td>3.390584e-02</td>
+<td>9.687382e-02</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">14</th>
+<td>P3</td>
+<td>P4</td>
+<td>4.854694e-02</td>
+<td>1.078821e-01</td>
+<td>False</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">18</th>
+<td>P3</td>
+<td>P5</td>
+<td>4.409880e-02</td>
+<td>1.078821e-01</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>P3</td>
+<td>P1</td>
+<td>7.051641e-02</td>
+<td>1.410328e-01</td>
+<td>False</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<div id="cell-conditional-vs-bivariate" class="cell" data-execution_count="14">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb20-1">edge_comparison <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> (</span>
+<span id="cb20-2">    gc_df[[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"source"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"target"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>]].rename(columns<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>{<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bivariate_p_adj"</span>})</span>
+<span id="cb20-3">    .merge(</span>
+<span id="cb20-4">        cond_df[[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"source"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"target"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>]].rename(columns<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>{<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_adj"</span>: <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"conditional_p_adj"</span>}),</span>
+<span id="cb20-5">        on<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"source"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"target"</span>]</span>
+<span id="cb20-6">    )</span>
+<span id="cb20-7">)</span>
+<span id="cb20-8">edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bivariate_sig"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bivariate_p_adj"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> alpha</span>
+<span id="cb20-9">edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"conditional_sig"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"conditional_p_adj"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> alpha</span>
+<span id="cb20-10"></span>
+<span id="cb20-11"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> edge_labels(df):</span>
+<span id="cb20-12">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> [<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>r<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>source<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">-&gt;</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>r<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>target<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> r <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> df.itertuples()]</span>
+<span id="cb20-13"></span>
+<span id="cb20-14">retained <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> edge_comparison[edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bivariate_sig"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;</span> edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"conditional_sig"</span>]]</span>
+<span id="cb20-15">explained_away <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> edge_comparison[edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bivariate_sig"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span>edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"conditional_sig"</span>]]</span>
+<span id="cb20-16">newly_significant <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> edge_comparison[<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">~</span>edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"bivariate_sig"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&amp;</span> edge_comparison[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"conditional_sig"</span>]]</span>
+<span id="cb20-17"></span>
+<span id="cb20-18"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Significant in both the bivariate and conditional test:"</span>, edge_labels(retained))</span>
+<span id="cb20-19"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Significant bivariate only (explained away by conditioning):"</span>, edge_labels(explained_away))</span>
+<span id="cb20-20"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Significant conditional only (unmasked by conditioning):"</span>, edge_labels(newly_significant))</span>
+<span id="cb20-21"></span>
+<span id="cb20-22">edge_comparison.sort_values(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"conditional_p_adj"</span>)</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Significant in both the bivariate and conditional test: ['P1-&gt;P2', 'P2-&gt;P3', 'P1-&gt;P4', 'P1-&gt;P5', 'P4-&gt;P5']
+Significant bivariate only (explained away by conditioning): ['P1-&gt;P3', 'P4-&gt;P3', 'P2-&gt;P4']
+Significant conditional only (unmasked by conditioning): ['P2-&gt;P5']</code></pre>
+</div>
+<div id="conditional-vs-bivariate" class="cell-output cell-output-display" data-execution_count="14">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">source</th>
+<th data-quarto-table-cell-role="th">target</th>
+<th data-quarto-table-cell-role="th">bivariate_p_adj</th>
+<th data-quarto-table-cell-role="th">conditional_p_adj</th>
+<th data-quarto-table-cell-role="th">bivariate_sig</th>
+<th data-quarto-table-cell-role="th">conditional_sig</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">4</th>
+<td>P1</td>
+<td>P2</td>
+<td>1.694431e-12</td>
+<td>1.235959e-21</td>
+<td>True</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">12</th>
+<td>P1</td>
+<td>P4</td>
+<td>2.196809e-12</td>
+<td>2.804830e-20</td>
+<td>True</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">19</th>
+<td>P4</td>
+<td>P5</td>
+<td>5.212231e-03</td>
+<td>8.009598e-06</td>
+<td>True</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">17</th>
+<td>P2</td>
+<td>P5</td>
+<td>8.426247e-02</td>
+<td>2.245040e-05</td>
+<td>False</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">16</th>
+<td>P1</td>
+<td>P5</td>
+<td>2.417360e-02</td>
+<td>1.495005e-02</td>
+<td>True</td>
+<td>True</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">9</th>
+<td>P2</td>
+<td>P3</td>
+<td>1.419828e-08</td>
+<td>2.340027e-02</td>
+<td>True</td>
+<td>True</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">2</th>
+<td>P4</td>
+<td>P1</td>
+<td>1.639923e-01</td>
+<td>9.687382e-02</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">14</th>
+<td>P3</td>
+<td>P4</td>
+<td>1.498089e-01</td>
+<td>1.078821e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">18</th>
+<td>P3</td>
+<td>P5</td>
+<td>1.639923e-01</td>
+<td>1.078821e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">1</th>
+<td>P3</td>
+<td>P1</td>
+<td>6.461512e-01</td>
+<td>1.410328e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">6</th>
+<td>P4</td>
+<td>P2</td>
+<td>1.524269e-01</td>
+<td>2.265667e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">5</th>
+<td>P3</td>
+<td>P2</td>
+<td>4.154936e-01</td>
+<td>2.434877e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">7</th>
+<td>P5</td>
+<td>P2</td>
+<td>6.890497e-01</td>
+<td>2.936597e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">11</th>
+<td>P5</td>
+<td>P3</td>
+<td>1.639923e-01</td>
+<td>2.936597e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">13</th>
+<td>P2</td>
+<td>P4</td>
+<td>1.734610e-02</td>
+<td>4.192516e-01</td>
+<td>True</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">0</th>
+<td>P2</td>
+<td>P1</td>
+<td>4.536401e-01</td>
+<td>4.547618e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">15</th>
+<td>P5</td>
+<td>P4</td>
+<td>1.524269e-01</td>
+<td>5.477594e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">3</th>
+<td>P5</td>
+<td>P1</td>
+<td>4.536401e-01</td>
+<td>7.632890e-01</td>
+<td>False</td>
+<td>False</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">10</th>
+<td>P4</td>
+<td>P3</td>
+<td>2.434240e-06</td>
+<td>8.704287e-01</td>
+<td>True</td>
+<td>False</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">8</th>
+<td>P1</td>
+<td>P3</td>
+<td>1.167241e-05</td>
+<td>9.138321e-01</td>
+<td>True</td>
+<td>False</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<p>The three lists above are the direct answer to whether the Section 5 artefacts were shared-cause effects: an edge in the “explained away” list was only significant because a bivariate test can’t see the other proteins, while an edge in the “retained” list survives even when everything else is controlled for.</p>
+<div class="callout callout-style-default callout-warning callout-titled" title="Conditioning helps, but it is not a guarantee of causality">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>Conditioning helps, but it is not a guarantee of causality
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>A conditional Granger test controls only for the variables that were measured. An unmeasured common driver, a nonlinear relationship, or a sampling interval coarser than the real biochemical timescale can each produce or hide an edge, and none of them can be detected from the test statistics alone. The joint model is also expensive in degrees of freedom: at lag L it estimates 5L + 1 coefficients per equation from 39 observations, so a conditional test has less power than a bivariate one, and a non-significant edge here means “not detectable at this sample size,” not “absent.” The edges that survive are best read as candidate regulatory relationships worth testing by perturbation, not as established mechanism.</p>
+</div>
+</div>
+</section>
+<section id="is-any-of-this-typical-a-replication-check" class="level2">
+<h2 class="anchored" data-anchor-id="is-any-of-this-typical-a-replication-check">9. Is Any of This Typical? A Replication Check</h2>
+<p>Everything above comes from one fixed random seed. That draw is exactly reproducible — rendering this document always regenerates the same numbers — but “reproducible” and “typical” are different properties. Before treating any pattern in Sections 5 through 8 as a property of the method rather than a property of this particular noise realization, it needs to be repeated across many independent draws of the same underlying causal structure.</p>
+<div id="monte-carlo-setup" class="cell" data-execution_count="15">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb22-1"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> simulate_once(seed, T<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">40</span>, noise_sd<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.4</span>):</span>
+<span id="cb22-2">    rng <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.random.RandomState(seed)</span>
+<span id="cb22-3">    stim <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)</span>
+<span id="cb22-4">    stim[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>:<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">8</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3.0</span></span>
+<span id="cb22-5">    p1 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)</span>
+<span id="cb22-6">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> t <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, T):</span>
+<span id="cb22-7">        p1[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.92</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> p1[t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> stim[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> rng.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd)</span>
+<span id="cb22-8">    p2 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">;</span> p3 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">;</span> p4 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.zeros(T)</span>
+<span id="cb22-9">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> t <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, T):</span>
+<span id="cb22-10">        p2[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.75</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> p1[t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> rng.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd)</span>
+<span id="cb22-11">        p3[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.70</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> p2[t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> rng.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd)</span>
+<span id="cb22-12">        p4[t] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.65</span> <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">*</span> p1[t<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> rng.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd)</span>
+<span id="cb22-13">    p5 <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> rng.normal(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>, noise_sd, T)</span>
+<span id="cb22-14">    df <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame({<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P1"</span>: p1, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P2"</span>: p2, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P3"</span>: p3, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P4"</span>: p4, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P5"</span>: p5})</span>
+<span id="cb22-15">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> (df <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">-</span> df.mean()) <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">/</span> df.std()</span>
+<span id="cb22-16"></span>
+<span id="cb22-17"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> prep_for_granger(df_scaled):</span>
+<span id="cb22-18">    non_stat <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> [c <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> c <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> df_scaled.columns <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> adfuller(df_scaled[c])[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&gt;=</span> <span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.05</span>]</span>
+<span id="cb22-19">    out <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> df_scaled.copy()</span>
+<span id="cb22-20">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> c <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> non_stat:</span>
+<span id="cb22-21">        out[c] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> df_scaled[c].diff()</span>
+<span id="cb22-22">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> out.dropna()</span>
+<span id="cb22-23"></span>
+<span id="cb22-24"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> bivariate_edges(df, max_lag<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>, alpha<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.05</span>):</span>
+<span id="cb22-25">    rows <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> []</span>
+<span id="cb22-26">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> target <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> df.columns:</span>
+<span id="cb22-27">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> source <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> df.columns:</span>
+<span id="cb22-28">            <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> target <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> source:</span>
+<span id="cb22-29">                <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">continue</span></span>
+<span id="cb22-30">            gc <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> grangercausalitytests(df[[target, source]].values, max_lag)</span>
+<span id="cb22-31">            p <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">min</span>(gc[l][<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0</span>][<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"ssr_ftest"</span>][<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> l <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>, max_lag <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>))</span>
+<span id="cb22-32">            rows.append((source, target, p))</span>
+<span id="cb22-33">    edf <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame(rows, columns<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"source"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"target"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>])</span>
+<span id="cb22-34">    edf[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"sig"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> multipletests(edf[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>], method<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"fdr_bh"</span>)[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> alpha</span>
+<span id="cb22-35">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">set</span>(<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">zip</span>(edf.source[edf.sig], edf.target[edf.sig]))</span>
+<span id="cb22-36"></span>
+<span id="cb22-37"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> conditional_edges(df, maxlags<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">3</span>, alpha<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="fl" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">0.05</span>):</span>
+<span id="cb22-38">    model <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> VAR(df)</span>
+<span id="cb22-39">    lag <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">max</span>(model.select_order(maxlags<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>maxlags).selected_orders[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"aic"</span>], <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb22-40">    fit <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> model.fit(lag)</span>
+<span id="cb22-41">    rows <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> []</span>
+<span id="cb22-42">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> target <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> df.columns:</span>
+<span id="cb22-43">        <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> source <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> df.columns:</span>
+<span id="cb22-44">            <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">if</span> target <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> source:</span>
+<span id="cb22-45">                <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">continue</span></span>
+<span id="cb22-46">            p <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> fit.test_causality(target, [source], kind<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"f"</span>).pvalue</span>
+<span id="cb22-47">            rows.append((source, target, p))</span>
+<span id="cb22-48">    edf <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.DataFrame(rows, columns<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"source"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"target"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>])</span>
+<span id="cb22-49">    edf[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"sig"</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> multipletests(edf[<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"p_value"</span>], method<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"fdr_bh"</span>)[<span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>] <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">&lt;</span> alpha</span>
+<span id="cb22-50">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">set</span>(<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">zip</span>(edf.source[edf.sig], edf.target[edf.sig])), lag</span></code></pre></div></div>
+</details>
+</div>
+<div id="cell-monte-carlo-run" class="cell" data-execution_count="16">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb23" style="background: #f1f3f5;"><pre class="sourceCode python code-with-copy"><code class="sourceCode python"><span id="cb23-1">n_replicates <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">100</span></span>
+<span id="cb23-2">bivariate_sets, conditional_sets, lags_chosen <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> [], [], []</span>
+<span id="cb23-3"></span>
+<span id="cb23-4"><span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> seed <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> <span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">range</span>(n_replicates):</span>
+<span id="cb23-5">    df_rep <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> prep_for_granger(simulate_once(seed <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">+</span> <span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">5000</span>))</span>
+<span id="cb23-6">    bivariate_sets.append(bivariate_edges(df_rep))</span>
+<span id="cb23-7">    c_set, lag <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> conditional_edges(df_rep)</span>
+<span id="cb23-8">    conditional_sets.append(c_set)</span>
+<span id="cb23-9">    lags_chosen.append(lag)</span>
+<span id="cb23-10"></span>
+<span id="cb23-11">true_edges <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> {(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P2"</span>), (<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P4"</span>), (<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P2"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P3"</span>)}</span>
+<span id="cb23-12"></span>
+<span id="cb23-13"><span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">def</span> replicate_summary(edge_sets, label):</span>
+<span id="cb23-14">    recall <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> {e: np.mean([e <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> s <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> s <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> edge_sets]) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> e <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> true_edges}</span>
+<span id="cb23-15">    confound_rate <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.mean([</span>
+<span id="cb23-16">        ((<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P2"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P4"</span>) <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> s) <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">or</span> ((<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P4"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P2"</span>) <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> s) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> s <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> edge_sets</span>
+<span id="cb23-17">    ])</span>
+<span id="cb23-18">    p4_p3_rate <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.mean([(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P4"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P3"</span>) <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> s <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> s <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> edge_sets])</span>
+<span id="cb23-19">    p1_p3_rate <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.mean([(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P3"</span>) <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> s <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> s <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> edge_sets])</span>
+<span id="cb23-20">    p5_fp_rate <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> np.mean([<span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">any</span>(t <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">==</span> <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P5"</span> <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> (_, t) <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> s) <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">for</span> s <span class="kw" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">in</span> edge_sets])</span>
+<span id="cb23-21">    <span class="cf" style="color: #003B4F;
+background-color: null;
+font-weight: bold;
+font-style: inherit;">return</span> pd.Series({</span>
+<span id="cb23-22">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"recall_P1-&gt;P2"</span>: recall[(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P2"</span>)],</span>
+<span id="cb23-23">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"recall_P1-&gt;P4"</span>: recall[(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P1"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P4"</span>)],</span>
+<span id="cb23-24">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"recall_P2-&gt;P3"</span>: recall[(<span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P2"</span>, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P3"</span>)],</span>
+<span id="cb23-25">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"confound_P2/P4_flagged"</span>: confound_rate,</span>
+<span id="cb23-26">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P4-&gt;P3_flagged"</span>: p4_p3_rate,</span>
+<span id="cb23-27">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"P1-&gt;P3_indirect_flagged"</span>: p1_p3_rate,</span>
+<span id="cb23-28">        <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"any_false_edge_into_P5"</span>: p5_fp_rate,</span>
+<span id="cb23-29">    }, name<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span>label)</span>
+<span id="cb23-30"></span>
+<span id="cb23-31">summary <span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span> pd.concat([</span>
+<span id="cb23-32">    replicate_summary(bivariate_sets, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Bivariate"</span>),</span>
+<span id="cb23-33">    replicate_summary(conditional_sets, <span class="st" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"Conditional (VAR)"</span>)</span>
+<span id="cb23-34">], axis<span class="op" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">=</span><span class="dv" style="color: #AD0000;
+background-color: null;
+font-style: inherit;">1</span>)</span>
+<span id="cb23-35"></span>
+<span id="cb23-36"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"</span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>n_replicates<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;"> independent noise draws of the same causal structure"</span>)</span>
+<span id="cb23-37"><span class="bu" style="color: null;
+background-color: null;
+font-style: inherit;">print</span>(<span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">f"AIC-selected lag order distribution: </span><span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">{</span>pd<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>Series(lags_chosen)<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>value_counts()<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>sort_index()<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">.</span>to_dict()<span class="sc" style="color: #5E5E5E;
+background-color: null;
+font-style: inherit;">}</span><span class="ss" style="color: #20794D;
+background-color: null;
+font-style: inherit;">"</span>)</span>
+<span id="cb23-38">summary</span></code></pre></div></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>100 independent noise draws of the same causal structure
+AIC-selected lag order distribution: {1: 19, 2: 21, 3: 60}</code></pre>
+</div>
+<div id="monte-carlo-run" class="cell-output cell-output-display" data-execution_count="16">
+<div>
+
+
+<table class="dataframe caption-top table table-sm table-striped small" data-border="1">
+<thead>
+<tr class="header">
+<th data-quarto-table-cell-role="th"></th>
+<th data-quarto-table-cell-role="th">Bivariate</th>
+<th data-quarto-table-cell-role="th">Conditional (VAR)</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">recall_P1-&gt;P2</th>
+<td>1.00</td>
+<td>1.00</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">recall_P1-&gt;P4</th>
+<td>1.00</td>
+<td>1.00</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">recall_P2-&gt;P3</th>
+<td>1.00</td>
+<td>0.71</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">confound_P2/P4_flagged</th>
+<td>0.81</td>
+<td>0.10</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">P4-&gt;P3_flagged</th>
+<td>0.99</td>
+<td>0.04</td>
+</tr>
+<tr class="even">
+<th data-quarto-table-cell-role="th">P1-&gt;P3_indirect_flagged</th>
+<td>1.00</td>
+<td>0.04</td>
+</tr>
+<tr class="odd">
+<th data-quarto-table-cell-role="th">any_false_edge_into_P5</th>
+<td>0.10</td>
+<td>0.11</td>
+</tr>
+</tbody>
+</table>
+
+</div>
+</div>
+</div>
+<p>Reading the two columns side by side separates what this method does reliably from what depends on the noise draw. P1→P2 and P1→P4 are recovered at 100% by both approaches, never in doubt. P2→P3 is recovered at 100% by the bivariate test but only 71% once conditioned on the other proteins — a real, sizeable power cost, not a rounding difference, from asking the joint model to also account for P3, P4, and P5’s histories on just 39 observations.</p>
+<p>The confound and the mediated path tell a sharper story, and the replication is what makes it possible to tell it with numbers instead of a hunch. Bivariate Granger causality flags the P2/P4 confound in 81% of replicates and the P4→P3 collinearity artefact in 99% — the single render walked through in Sections 5 through 7 was not a fluke, it was close to the typical case for both. Conditioning on the other proteins drops the confound rate to 10% and the P4→P3 rate to 4%, and does the same to the indirect P1→P3 edge, down to 4% from 100%. That is the replication-level confirmation that Section 8’s explanation — these are shared-cause and mediation artefacts, not direct effects — holds up rather than being a plausible story fitted after the fact.</p>
+<p>One result does not fit the “conditioning fixes it” pattern: the false-edge rate into the noise control P5 sits at 10% for the bivariate test and 11% for the conditional one — essentially unchanged. Whatever is producing those two false positives in Section 5 (most likely the within-pair multiple-lag selection noted there), it is not the same shared-cause mechanism that conditioning corrects for, and conditioning on more variables does not fix a problem that was never about omitted variables in the first place. That is a useful negative result on its own: not every artefact in a Granger causality analysis has the same cause or the same remedy, and it is worth checking each one rather than assuming a single fix — conditioning — clears all of them.</p>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled" title="Key findings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key findings
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>Stationarity was checked rather than assumed. Four of the five series (P1–P4) tested non-stationary and were differenced; only the pure-noise control was stationary. With 40 timepoints the ADF test has limited power, so the meaningful result is the separation between the wandering series and the control, not the individual p-values.</li>
+<li>Bivariate Granger causality recovered all three true edges with the correct direction and correctly identified P1 as the upstream hub and P3 as a pure sink. It also reliably produces two artefacts that are not direct edges in the simulation — the mediated path P1→P3 (100% of 100 replicates) and the shared-cause pair P2/P4 (81%) — confirming these are systematic properties of the method on this structure, not a one-off feature of a single noisy draw.</li>
+<li>Conditioning on every other protein in a joint VAR model is the textbook remedy, and the replication confirms it works exactly as the mechanism predicts: the confound rate drops from 81% to 10%, and the indirect and collinearity artefacts drop from 100% and 99% down to 4% each. The cost is real power — the true edge P2→P3, recovered 100% of the time bivariate, drops to 71% once every other protein is controlled for on only 39 observations.</li>
+<li>Not every artefact has the same fix. A false-edge rate into the noise control P5 sits at 10% bivariate and 11% conditional — essentially unchanged by conditioning — meaning whatever produces it (most likely the uncorrected within-pair multiple-lag selection) is a different problem from the shared-cause confound, and needs a different remedy, not just “condition on more variables.”</li>
+<li>Against a plain correlation network, Granger causality’s real advantages were direction (which a symmetric correlation matrix cannot express) and ranking — the three true edges had overwhelmingly the strongest statistical evidence, even though the confounded pair technically cleared the same significance threshold and had the single highest raw correlation in the dataset.</li>
+<li>This analysis used simulated data so the ground truth would be checkable, and repeated the whole pipeline 100 times so no single conclusion rested on one noise draw. On real phosphoproteomics, the bash preprocessing in Section 3 would be needed to produce an evenly sampled time series in the first place, and unmeasured confounders would make every recovered edge a hypothesis for perturbation experiments rather than a finding.</li>
+</ul>
+</div>
+</div>
+<p>#SystemsBiology #CausalInference #GrangerCausality #Proteomics #NetworkX #TimeSeries #Python #ComputationalBiology</p>
+
+
+</section>
+
+ ]]></description>
+  <category>Systems Biology</category>
+  <category>Causal Inference</category>
+  <category>Proteomics</category>
+  <category>Time Series</category>
+  <category>Python</category>
+  <guid>https://Real-peekei.github.io/articles/articles/causal-network-inference-final.html</guid>
+  <pubDate>Sun, 13 Sep 2026 21:00:00 GMT</pubDate>
+</item>
+<item>
   <title>Weighted Gene Co-Expression Network Analysis: Modules, Hub Genes, and Trait Drivers in Mammary Gland RNA-seq</title>
   <dc:creator>Peekei </dc:creator>
   <link>https://Real-peekei.github.io/articles/articles/gene-coexpression-wgcna-final.html</link>

@@ -2,6 +2,7 @@
   {
     "listing": "/index.html",
     "items": [
+      "/articles/causal-network-inference-final.html",
       "/articles/gene-coexpression-wgcna-final.html",
       "/articles/signaling-pathway-ode-final.html",
       "/articles/metabolic-flux-analysis-final.html",
