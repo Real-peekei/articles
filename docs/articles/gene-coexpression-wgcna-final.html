@@ -1,0 +1,1599 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+<meta name="author" content="Peekei">
+<meta name="dcterms.date" content="2026-09-14">
+<meta name="description" content="WGCNA on real RNA-seq data from NCBI GEO — soft-thresholding power selection, module detection, module-trait correlation, and hub gene identification within the trait-driving module.">
+
+<title>Weighted Gene Co-Expression Network Analysis: Modules, Hub Genes, and Trait Drivers in Mammary Gland RNA-seq – Peekei</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="../site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="../site_libs/quarto-nav/headroom.min.js"></script>
+<script src="../site_libs/clipboard/clipboard.min.js"></script>
+<script src="../site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="../site_libs/quarto-search/fuse.min.js"></script>
+<script src="../site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="../">
+<script src="../site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="../site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="../site_libs/quarto-html/popper.min.js"></script>
+<script src="../site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="../site_libs/quarto-html/anchor.min.js"></script>
+<link href="../site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="../site_libs/quarto-html/quarto-syntax-highlighting-c79b9b43b4475c8f7a5502315412d8cf.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="../site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="../site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="../site_libs/bootstrap/bootstrap-5523e3e86f7e97080a9acb2c63cc5923.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+<script id="quarto-search-options" type="application/json">{
+  "location": "navbar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "end",
+  "type": "overlay",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<style>html{ scroll-behavior: smooth; }</style>
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="nav-fixed quarto-light">
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+    <nav class="navbar navbar-expand-lg " data-bs-theme="dark">
+      <div class="navbar-container container-fluid">
+      <div class="navbar-brand-container mx-auto">
+    <a class="navbar-brand" href="../index.html">
+    <span class="navbar-title">Peekei</span>
+    </a>
+  </div>
+            <div id="quarto-search" class="" title="Search"></div>
+          <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarCollapse" aria-controls="navbarCollapse" role="menu" aria-expanded="false" aria-label="Toggle navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+  <span class="navbar-toggler-icon"></span>
+</button>
+          <div class="collapse navbar-collapse" id="navbarCollapse">
+            <ul class="navbar-nav navbar-nav-scroll me-auto">
+  <li class="nav-item">
+    <a class="nav-link" href="../index.html"> 
+<span class="menu-text">Articles</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="../about.html"> 
+<span class="menu-text">About</span></a>
+  </li>  
+  <li class="nav-item">
+    <a class="nav-link" href="https://github.com/Real-peekei/omicsuite"> 
+<span class="menu-text">omicsuite</span></a>
+  </li>  
+</ul>
+            <ul class="navbar-nav navbar-nav-scroll ms-auto">
+  <li class="nav-item compact">
+    <a class="nav-link" href="https://github.com/Real-peekei"> <i class="bi bi-github" role="img" aria-label="GitHub">
+</i> 
+<span class="menu-text"></span></a>
+  </li>  
+</ul>
+          </div> <!-- /navcollapse -->
+            <div class="quarto-navbar-tools">
+</div>
+      </div> <!-- /container-fluid -->
+    </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article page-navbar">
+<!-- sidebar -->
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">On this page</h2>
+   
+  <ul class="collapse">
+  <li><a href="#motivation" id="toc-motivation" class="nav-link active" data-scroll-target="#motivation">1. Motivation</a></li>
+  <li><a href="#data-acquisition" id="toc-data-acquisition" class="nav-link" data-scroll-target="#data-acquisition">2. Data Acquisition</a></li>
+  <li><a href="#preprocessing-normalisation-and-sample-qc" id="toc-preprocessing-normalisation-and-sample-qc" class="nav-link" data-scroll-target="#preprocessing-normalisation-and-sample-qc">3. Preprocessing, Normalisation, and Sample QC</a></li>
+  <li><a href="#soft-thresholding-power-selection" id="toc-soft-thresholding-power-selection" class="nav-link" data-scroll-target="#soft-thresholding-power-selection">4. Soft-Thresholding Power Selection</a></li>
+  <li><a href="#network-construction-and-module-detection" id="toc-network-construction-and-module-detection" class="nav-link" data-scroll-target="#network-construction-and-module-detection">5. Network Construction and Module Detection</a></li>
+  <li><a href="#module-eigengenes-and-trait-correlation" id="toc-module-eigengenes-and-trait-correlation" class="nav-link" data-scroll-target="#module-eigengenes-and-trait-correlation">6. Module Eigengenes and Trait Correlation</a></li>
+  <li><a href="#hub-gene-identification" id="toc-hub-gene-identification" class="nav-link" data-scroll-target="#hub-gene-identification">7. Hub Gene Identification</a></li>
+  <li><a href="#takeaways" id="toc-takeaways" class="nav-link" data-scroll-target="#takeaways">Takeaways</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Weighted Gene Co-Expression Network Analysis: Modules, Hub Genes, and Trait Drivers in Mammary Gland RNA-seq</h1>
+  <div class="quarto-categories">
+    <div class="quarto-category">Systems Biology</div>
+    <div class="quarto-category">Gene Networks</div>
+    <div class="quarto-category">WGCNA</div>
+    <div class="quarto-category">RNA-seq</div>
+    <div class="quarto-category">R</div>
+  </div>
+  </div>
+
+<div>
+  <div class="description">
+    WGCNA on real RNA-seq data from NCBI GEO — soft-thresholding power selection, module detection, module-trait correlation, and hub gene identification within the trait-driving module.
+  </div>
+</div>
+
+
+<div class="quarto-title-meta">
+
+    <div>
+    <div class="quarto-title-meta-heading">Author</div>
+    <div class="quarto-title-meta-contents">
+             <p>Peekei </p>
+          </div>
+  </div>
+    
+    <div>
+    <div class="quarto-title-meta-heading">Published</div>
+    <div class="quarto-title-meta-contents">
+      <p class="date">September 14, 2026</p>
+    </div>
+  </div>
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<!--
+SETUP — run this once in RStudio before rendering (no new environment
+or kernel needed — this renders through R's native engine):
+
+  if (!requireNamespace("BiocManager", quietly = TRUE))
+      install.packages("BiocManager")
+  BiocManager::install(c("GEOquery", "DESeq2", "WGCNA", "org.Mm.eg.db"))
+  install.packages(c("tidyverse", "pheatmap", "ggrepel"))
+
+Render with the usual Render button, or:
+  quarto render gene-coexpression-wgcna-v1.qmd
+-->
+<section id="motivation" class="level2">
+<h2 class="anchored" data-anchor-id="motivation">1. Motivation</h2>
+<p>Differential expression analysis asks which genes change between conditions, one gene at a time. It’s a reasonable first question, but it throws away a structure that’s biologically real: genes don’t act alone, they act in coordinated groups — modules — that rise and fall together because they share regulation, participate in the same pathway, or respond to the same upstream signal. Weighted Gene Co-Expression Network Analysis (WGCNA) builds a network directly from expression correlation, groups genes into modules based on that network structure rather than on any prior pathway annotation, and then asks which modules — not which individual genes — track a clinical or biological trait of interest. The genes at the center of a trait-correlated module, the hub genes, are the strongest computational candidates for being actual drivers of that trait rather than downstream bystanders.</p>
+<p>This piece builds the full WGCNA pipeline on a real RNA-seq dataset from NCBI GEO: soft-thresholding power selection (the step that turns a simple correlation matrix into a genuinely <em>weighted</em> network, and the step most public explanations of WGCNA skip past too quickly), module detection, module-trait correlation across a multi-factor experimental design, and hub gene identification within the module most strongly tied to a trait of interest.</p>
+</section>
+<section id="data-acquisition" class="level2">
+<h2 class="anchored" data-anchor-id="data-acquisition">2. Data Acquisition</h2>
+<p>The dataset is GSE60450 — RNA-seq of mouse mammary epithelial cells, sorted into basal and luminal populations across three developmental stages (virgin, pregnant, lactating). That 2×3 design gives multiple genuine biological traits to correlate against modules, rather than a single binary group.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode bash code-with-copy"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Reference only — the R chunk below performs the actual download with</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="co"># validation and a discovery step, since GEO series package expression</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co"># data inconsistently (sometimes in the series matrix, more often as a</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="co"># separate supplementary file with a submission-specific filename).</span></span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Shown here for the bash-automation step the brief calls for.</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">mkdir</span> <span class="at">-p</span> geo_data</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-o</span> geo_data/GSE60450_series_matrix.txt.gz <span class="dt">\</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>  <span class="st">"https://ftp.ncbi.nlm.nih.gov/geo/series/GSE60nnn/GSE60450/matrix/GSE60450_series_matrix.txt.gz"</span></span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a><span class="ex">curl</span> <span class="at">-o</span> geo_data/GSE60450_supp.tar <span class="dt">\</span></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  <span class="st">"https://ftp.ncbi.nlm.nih.gov/geo/series/GSE60nnn/GSE60450/suppl/GSE60450_RAW.tar"</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>GEO_ACCESSION <span class="ot">&lt;-</span> <span class="st">"GSE60450"</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>DATA_DIR <span class="ot">&lt;-</span> <span class="st">"geo_data"</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="fu">dir.create</span>(DATA_DIR, <span class="at">showWarnings =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>download_with_retry <span class="ot">&lt;-</span> <span class="cf">function</span>(fetch_fn, <span class="at">attempts =</span> <span class="dv">3</span>, <span class="at">delay =</span> <span class="dv">5</span>) {</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">for</span> (attempt <span class="cf">in</span> <span class="fu">seq_len</span>(attempts)) {</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>    result <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(<span class="fu">fetch_fn</span>(), <span class="at">error =</span> <span class="cf">function</span>(e) {</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>      <span class="fu">message</span>(<span class="fu">sprintf</span>(<span class="st">"  Attempt %d/%d failed: %s"</span>, attempt, attempts, <span class="fu">conditionMessage</span>(e)))</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>      <span class="cn">NULL</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    })</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (<span class="sc">!</span><span class="fu">is.null</span>(result)) <span class="fu">return</span>(result)</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> (attempt <span class="sc">&lt;</span> attempts) <span class="fu">Sys.sleep</span>(delay)</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a>  <span class="cn">NULL</span></span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-16"><a href="#cb2-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-17"><a href="#cb2-17" aria-hidden="true" tabindex="-1"></a>gse <span class="ot">&lt;-</span> <span class="fu">download_with_retry</span>(<span class="cf">function</span>() {</span>
+<span id="cb2-18"><a href="#cb2-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">getGEO</span>(GEO_ACCESSION, <span class="at">GSEMatrix =</span> <span class="cn">TRUE</span>, <span class="at">destdir =</span> DATA_DIR)</span>
+<span id="cb2-19"><a href="#cb2-19" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb2-20"><a href="#cb2-20" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-21"><a href="#cb2-21" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">is.null</span>(gse)) {</span>
+<span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stop</span>(<span class="fu">paste0</span>(</span>
+<span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>    <span class="st">"</span><span class="sc">\n\n</span><span class="st">Could not download series metadata after multiple attempts — "</span>,</span>
+<span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    <span class="st">"this usually means a network issue rather than a code problem.</span><span class="sc">\n</span><span class="st">"</span>,</span>
+<span id="cb2-25"><a href="#cb2-25" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Manual fallback: open https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc="</span>,</span>
+<span id="cb2-26"><a href="#cb2-26" aria-hidden="true" tabindex="-1"></a>    GEO_ACCESSION, <span class="st">" in a browser, download the series matrix file, and "</span>,</span>
+<span id="cb2-27"><a href="#cb2-27" aria-hidden="true" tabindex="-1"></a>    <span class="st">"place it in the '"</span>, DATA_DIR, <span class="st">"' folder, then re-render."</span></span>
+<span id="cb2-28"><a href="#cb2-28" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb2-29"><a href="#cb2-29" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb2-30"><a href="#cb2-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-31"><a href="#cb2-31" aria-hidden="true" tabindex="-1"></a>pheno_data <span class="ot">&lt;-</span> <span class="fu">pData</span>(gse[[<span class="dv">1</span>]])</span>
+<span id="cb2-32"><a href="#cb2-32" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Phenotype table dimensions:"</span>, <span class="fu">dim</span>(pheno_data)[<span class="dv">1</span>], <span class="st">"samples x"</span>, <span class="fu">dim</span>(pheno_data)[<span class="dv">2</span>], <span class="st">"fields</span><span class="sc">\n\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Phenotype table dimensions: 12 samples x 57 fields</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Column names:</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Column names:</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">colnames</span>(pheno_data))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code> [1] "title"                   "geo_accession"          
+ [3] "status"                  "submission_date"        
+ [5] "last_update_date"        "type"                   
+ [7] "channel_count"           "source_name_ch1"        
+ [9] "organism_ch1"            "characteristics_ch1"    
+[11] "characteristics_ch1.1"   "characteristics_ch1.2"  
+[13] "characteristics_ch1.3"   "characteristics_ch1.4"  
+[15] "characteristics_ch1.5"   "treatment_protocol_ch1" 
+[17] "growth_protocol_ch1"     "molecule_ch1"           
+[19] "extract_protocol_ch1"    "extract_protocol_ch1.1" 
+[21] "taxid_ch1"               "description"            
+[23] "description.1"           "description.2"          
+[25] "data_processing"         "data_processing.1"      
+[27] "data_processing.2"       "data_processing.3"      
+[29] "data_processing.4"       "platform_id"            
+[31] "contact_name"            "contact_email"          
+[33] "contact_phone"           "contact_fax"            
+[35] "contact_laboratory"      "contact_department"     
+[37] "contact_institute"       "contact_address"        
+[39] "contact_city"            "contact_state"          
+[41] "contact_zip/postal_code" "contact_country"        
+[43] "contact_web_link"        "data_row_count"         
+[45] "instrument_model"        "library_selection"      
+[47] "library_source"          "library_strategy"       
+[49] "relation"                "relation.1"             
+[51] "supplementary_file_1"    "developmental stage:ch1"
+[53] "gender:ch1"              "genotype/variation:ch1" 
+[55] "immunophenotype:ch1"     "strain/background:ch1"  
+[57] "tissue:ch1"             </code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Print the actual characteristics columns so trait parsing below can be</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a><span class="co"># verified against what's really in this series, rather than assumed.</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>char_cols <span class="ot">&lt;-</span> <span class="fu">colnames</span>(pheno_data)[<span class="fu">grepl</span>(<span class="st">"characteristics"</span>, <span class="fu">colnames</span>(pheno_data), <span class="at">ignore.case =</span> <span class="cn">TRUE</span>)]</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>pheno_data[, <span class="fu">c</span>(<span class="st">"title"</span>, char_cols)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>                        title      characteristics_ch1
+GSM1480291  Luminal virgin #1 strain/background: FVB/N
+GSM1480292  Luminal virgin #2 strain/background: FVB/N
+GSM1480293 Luminal 18.5 dP #1 strain/background: FVB/N
+GSM1480294 Luminal 18.5 dP #2 strain/background: FVB/N
+GSM1480295    Luminal 2 dL #1 strain/background: FVB/N
+GSM1480296    Luminal 2 dL #2 strain/background: FVB/N
+GSM1480297    Basal virgin #1 strain/background: FVB/N
+GSM1480298    Basal virgin #2 strain/background: FVB/N
+GSM1480299   Basal 18.5 dP #1 strain/background: FVB/N
+GSM1480300   Basal 18.5 dP #2 strain/background: FVB/N
+GSM1480301      Basal 2 dL #1 strain/background: FVB/N
+GSM1480302      Basal 2 dL #2 strain/background: FVB/N
+                   characteristics_ch1.1 characteristics_ch1.2
+GSM1480291 genotype/variation: wild type        gender: female
+GSM1480292 genotype/variation: wild type        gender: female
+GSM1480293 genotype/variation: wild type        gender: female
+GSM1480294 genotype/variation: wild type        gender: female
+GSM1480295 genotype/variation: wild type        gender: female
+GSM1480296 genotype/variation: wild type        gender: female
+GSM1480297 genotype/variation: wild type        gender: female
+GSM1480298 genotype/variation: wild type        gender: female
+GSM1480299 genotype/variation: wild type        gender: female
+GSM1480300 genotype/variation: wild type        gender: female
+GSM1480301 genotype/variation: wild type        gender: female
+GSM1480302 genotype/variation: wild type        gender: female
+                 characteristics_ch1.3                    characteristics_ch1.4
+GSM1480291 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480292 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480293 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480294 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480295 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480296 tissue: mouse mammary gland immunophenotype: luminal cell population
+GSM1480297 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480298 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480299 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480300 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480301 tissue: mouse mammary gland   immunophenotype: basal cell population
+GSM1480302 tissue: mouse mammary gland   immunophenotype: basal cell population
+                             characteristics_ch1.5
+GSM1480291             developmental stage: virgin
+GSM1480292             developmental stage: virgin
+GSM1480293 developmental stage: 18.5 day pregnancy
+GSM1480294 developmental stage: 18.5 day pregnancy
+GSM1480295    developmental stage: 2 day lactation
+GSM1480296    developmental stage: 2 day lactation
+GSM1480297             developmental stage: virgin
+GSM1480298             developmental stage: virgin
+GSM1480299 developmental stage: 18.5 day pregnancy
+GSM1480300 developmental stage: 18.5 day pregnancy
+GSM1480301    developmental stage: 2 day lactation
+GSM1480302    developmental stage: 2 day lactation</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>supp_files <span class="ot">&lt;-</span> <span class="fu">download_with_retry</span>(<span class="cf">function</span>() {</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">getGEOSuppFiles</span>(GEO_ACCESSION, <span class="at">baseDir =</span> DATA_DIR, <span class="at">makeDirectory =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>})</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">is.null</span>(supp_files)) {</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stop</span>(<span class="fu">paste0</span>(</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>    <span class="st">"</span><span class="sc">\n\n</span><span class="st">Could not download the supplementary counts file after multiple "</span>,</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>    <span class="st">"attempts. Manual fallback: download the supplementary files from</span><span class="sc">\n</span><span class="st">"</span>,</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">"https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc="</span>, GEO_ACCESSION,</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">" (Supplementary file section), place them under '"</span>, DATA_DIR,</span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">"/"</span>, GEO_ACCESSION, <span class="st">"/', and re-render."</span></span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a>supp_dir <span class="ot">&lt;-</span> <span class="fu">file.path</span>(DATA_DIR, GEO_ACCESSION)</span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a>downloaded_files <span class="ot">&lt;-</span> <span class="fu">list.files</span>(supp_dir, <span class="at">full.names =</span> <span class="cn">TRUE</span>, <span class="at">recursive =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Files downloaded:</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Files downloaded:</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(downloaded_files)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] "geo_data/GSE60450/GSE60450_Lactation-GenewiseCounts.txt.gz"
+[2] "geo_data/GSE60450/GSE60450_RAW.tar"                        </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Discover the counts file rather than assuming an exact filename —</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a><span class="co"># GEO submissions name these files inconsistently across series.</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>counts_candidates <span class="ot">&lt;-</span> downloaded_files[<span class="fu">grepl</span>(<span class="st">"count"</span>, downloaded_files, <span class="at">ignore.case =</span> <span class="cn">TRUE</span>)]</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">length</span>(counts_candidates) <span class="sc">==</span> <span class="dv">0</span>) {</span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>  <span class="co"># fall back to the largest file, which is usually the full counts table</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>  counts_candidates <span class="ot">&lt;-</span> downloaded_files[<span class="fu">which.max</span>(<span class="fu">file.size</span>(downloaded_files))]</span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>counts_file <span class="ot">&lt;-</span> counts_candidates[<span class="dv">1</span>]</span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"</span><span class="sc">\n</span><span class="st">Using as counts file:"</span>, counts_file, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+Using as counts file: geo_data/GSE60450/GSE60450_Lactation-GenewiseCounts.txt.gz </code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>raw_counts_full <span class="ot">&lt;-</span> <span class="fu">read.delim</span>(counts_file, <span class="at">header =</span> <span class="cn">TRUE</span>, <span class="at">row.names =</span> <span class="dv">1</span>, <span class="at">check.names =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="co"># featureCounts-style output (which this "GenewiseCounts" file is) puts a</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co"># gene-length annotation column first, before any actual sample columns —</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="co"># that's metadata, not a 13th sample, and including it as one would</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a><span class="co"># corrupt every downstream step silently.</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>length_col <span class="ot">&lt;-</span> <span class="fu">which</span>(<span class="fu">tolower</span>(<span class="fu">colnames</span>(raw_counts_full)) <span class="sc">==</span> <span class="st">"length"</span>)</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">length</span>(length_col) <span class="sc">==</span> <span class="dv">1</span>) {</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>  gene_lengths <span class="ot">&lt;-</span> raw_counts_full[[length_col]]</span>
+<span id="cb16-10"><a href="#cb16-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">names</span>(gene_lengths) <span class="ot">&lt;-</span> <span class="fu">rownames</span>(raw_counts_full)</span>
+<span id="cb16-11"><a href="#cb16-11" aria-hidden="true" tabindex="-1"></a>  raw_counts <span class="ot">&lt;-</span> raw_counts_full[, <span class="sc">-</span>length_col, drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb16-12"><a href="#cb16-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"Removed a 'Length' annotation column — it's gene length, not a sample.</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb16-13"><a href="#cb16-13" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb16-14"><a href="#cb16-14" aria-hidden="true" tabindex="-1"></a>  raw_counts <span class="ot">&lt;-</span> raw_counts_full</span>
+<span id="cb16-15"><a href="#cb16-15" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Removed a 'Length' annotation column — it's gene length, not a sample.</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Counts matrix dimensions:"</span>, <span class="fu">dim</span>(raw_counts)[<span class="dv">1</span>], <span class="st">"genes x"</span>, <span class="fu">dim</span>(raw_counts)[<span class="dv">2</span>], <span class="st">"sample columns</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Counts matrix dimensions: 27179 genes x 12 sample columns</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(raw_counts[, <span class="dv">1</span><span class="sc">:</span><span class="fu">min</span>(<span class="dv">6</span>, <span class="fu">ncol</span>(raw_counts))])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>          MCL1-DG_BC2CTUACXX_ACTTGA_L002_R1 MCL1-DH_BC2CTUACXX_CAGATC_L002_R1
+497097                                  438                               300
+100503874                                 1                                 0
+100038431                                 0                                 0
+19888                                     1                                 1
+20671                                   106                               182
+27395                                   309                               234
+          MCL1-DI_BC2CTUACXX_ACAGTG_L002_R1 MCL1-DJ_BC2CTUACXX_CGATGT_L002_R1
+497097                                   65                               237
+100503874                                 1                                 1
+100038431                                 0                                 0
+19888                                     0                                 0
+20671                                    82                               105
+27395                                   337                               300
+          MCL1-DK_BC2CTUACXX_TTAGGC_L002_R1 MCL1-DL_BC2CTUACXX_ATCACG_L002_R1
+497097                                  354                               287
+100503874                                 0                                 4
+100038431                                 0                                 0
+19888                                     0                                 0
+20671                                    43                                82
+27395                                   290                               270</code></pre>
+</div>
+</div>
+</section>
+<section id="preprocessing-normalisation-and-sample-qc" class="level2">
+<h2 class="anchored" data-anchor-id="preprocessing-normalisation-and-sample-qc">3. Preprocessing, Normalisation, and Sample QC</h2>
+<p>Raw counts aren’t suitable for correlation-based network construction directly — count variance scales with mean expression level, which would let highly-expressed genes dominate the network purely as an artefact of their expression magnitude rather than genuine co-regulation. A variance-stabilising transformation (VST) removes that mean-variance relationship before anything else happens.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Match counts columns to phenotype rows. GEO count matrices are commonly</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a><span class="co"># indexed by a submitter-defined sample/library name rather than by GSM</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a><span class="co"># accession, while pData()'s rownames are always GSM accessions — so a</span></span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a><span class="co"># direct rownames match often fails even when the data lines up perfectly</span></span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a><span class="co"># well once the right identifier is used. Try several strategies in order</span></span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a><span class="co"># rather than assuming the first one works.</span></span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a>count_samples <span class="ot">&lt;-</span> <span class="fu">colnames</span>(raw_counts)</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>pheno_samples <span class="ot">&lt;-</span> <span class="fu">rownames</span>(pheno_data)</span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>normalize_id <span class="ot">&lt;-</span> <span class="cf">function</span>(x) <span class="fu">gsub</span>(<span class="st">"[^A-Za-z0-9]"</span>, <span class="st">""</span>, <span class="fu">tolower</span>(x))</span>
+<span id="cb22-12"><a href="#cb22-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-13"><a href="#cb22-13" aria-hidden="true" tabindex="-1"></a>pheno_matched <span class="ot">&lt;-</span> <span class="cn">NULL</span></span>
+<span id="cb22-14"><a href="#cb22-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-15"><a href="#cb22-15" aria-hidden="true" tabindex="-1"></a><span class="co"># Strategy 1: direct match to GSM accessions (pheno_data rownames)</span></span>
+<span id="cb22-16"><a href="#cb22-16" aria-hidden="true" tabindex="-1"></a>matched_by_gsm <span class="ot">&lt;-</span> <span class="fu">intersect</span>(count_samples, pheno_samples)</span>
+<span id="cb22-17"><a href="#cb22-17" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">length</span>(matched_by_gsm) <span class="sc">==</span> <span class="fu">length</span>(count_samples)) {</span>
+<span id="cb22-18"><a href="#cb22-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"Matched all"</span>, <span class="fu">length</span>(count_samples), <span class="st">"samples directly by GSM accession.</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb22-19"><a href="#cb22-19" aria-hidden="true" tabindex="-1"></a>  pheno_matched <span class="ot">&lt;-</span> pheno_data[count_samples, , drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb22-20"><a href="#cb22-20" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb22-21"><a href="#cb22-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-22"><a href="#cb22-22" aria-hidden="true" tabindex="-1"></a><span class="co"># Strategy 2: match to the 'title' column (common when count files use</span></span>
+<span id="cb22-23"><a href="#cb22-23" aria-hidden="true" tabindex="-1"></a><span class="co"># submitter-defined library names instead of GSM IDs)</span></span>
+<span id="cb22-24"><a href="#cb22-24" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">is.null</span>(pheno_matched) <span class="sc">&amp;&amp;</span> <span class="st">"title"</span> <span class="sc">%in%</span> <span class="fu">colnames</span>(pheno_data)) {</span>
+<span id="cb22-25"><a href="#cb22-25" aria-hidden="true" tabindex="-1"></a>  title_match_idx <span class="ot">&lt;-</span> <span class="fu">match</span>(count_samples, pheno_data<span class="sc">$</span>title)</span>
+<span id="cb22-26"><a href="#cb22-26" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">all</span>(<span class="sc">!</span><span class="fu">is.na</span>(title_match_idx))) {</span>
+<span id="cb22-27"><a href="#cb22-27" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="st">"Matched all"</span>, <span class="fu">length</span>(count_samples), <span class="st">"samples via the 'title' field.</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb22-28"><a href="#cb22-28" aria-hidden="true" tabindex="-1"></a>    pheno_matched <span class="ot">&lt;-</span> pheno_data[title_match_idx, , drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb22-29"><a href="#cb22-29" aria-hidden="true" tabindex="-1"></a>    <span class="fu">rownames</span>(pheno_matched) <span class="ot">&lt;-</span> count_samples</span>
+<span id="cb22-30"><a href="#cb22-30" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb22-31"><a href="#cb22-31" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb22-32"><a href="#cb22-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-33"><a href="#cb22-33" aria-hidden="true" tabindex="-1"></a><span class="co"># Strategy 3: same as above, but normalising punctuation first (handles</span></span>
+<span id="cb22-34"><a href="#cb22-34" aria-hidden="true" tabindex="-1"></a><span class="co"># mismatches like "MCL1-DG" in one identifier system vs "MCL1.DG" in another)</span></span>
+<span id="cb22-35"><a href="#cb22-35" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">is.null</span>(pheno_matched) <span class="sc">&amp;&amp;</span> <span class="st">"title"</span> <span class="sc">%in%</span> <span class="fu">colnames</span>(pheno_data)) {</span>
+<span id="cb22-36"><a href="#cb22-36" aria-hidden="true" tabindex="-1"></a>  norm_counts <span class="ot">&lt;-</span> <span class="fu">normalize_id</span>(count_samples)</span>
+<span id="cb22-37"><a href="#cb22-37" aria-hidden="true" tabindex="-1"></a>  norm_titles <span class="ot">&lt;-</span> <span class="fu">normalize_id</span>(pheno_data<span class="sc">$</span>title)</span>
+<span id="cb22-38"><a href="#cb22-38" aria-hidden="true" tabindex="-1"></a>  norm_match_idx <span class="ot">&lt;-</span> <span class="fu">match</span>(norm_counts, norm_titles)</span>
+<span id="cb22-39"><a href="#cb22-39" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">all</span>(<span class="sc">!</span><span class="fu">is.na</span>(norm_match_idx))) {</span>
+<span id="cb22-40"><a href="#cb22-40" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="st">"Matched all"</span>, <span class="fu">length</span>(count_samples), <span class="st">"samples via normalised 'title' field"</span>,</span>
+<span id="cb22-41"><a href="#cb22-41" aria-hidden="true" tabindex="-1"></a>        <span class="st">"(punctuation differences reconciled).</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb22-42"><a href="#cb22-42" aria-hidden="true" tabindex="-1"></a>    pheno_matched <span class="ot">&lt;-</span> pheno_data[norm_match_idx, , drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb22-43"><a href="#cb22-43" aria-hidden="true" tabindex="-1"></a>    <span class="fu">rownames</span>(pheno_matched) <span class="ot">&lt;-</span> count_samples</span>
+<span id="cb22-44"><a href="#cb22-44" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb22-45"><a href="#cb22-45" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb22-46"><a href="#cb22-46" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-47"><a href="#cb22-47" aria-hidden="true" tabindex="-1"></a><span class="co"># Strategy 4: the count columns may be named by sequencing library code</span></span>
+<span id="cb22-48"><a href="#cb22-48" aria-hidden="true" tabindex="-1"></a><span class="co"># (e.g. "MCL1-DG") rather than anything resembling the phenotype 'title'</span></span>
+<span id="cb22-49"><a href="#cb22-49" aria-hidden="true" tabindex="-1"></a><span class="co"># field at all — these are simply two different naming systems with no</span></span>
+<span id="cb22-50"><a href="#cb22-50" aria-hidden="true" tabindex="-1"></a><span class="co"># textual overlap, not a punctuation mismatch. GEO sequencing submissions</span></span>
+<span id="cb22-51"><a href="#cb22-51" aria-hidden="true" tabindex="-1"></a><span class="co"># typically still carry the original library code somewhere else in the</span></span>
+<span id="cb22-52"><a href="#cb22-52" aria-hidden="true" tabindex="-1"></a><span class="co"># metadata (supplementary file name, description, or relation field), so</span></span>
+<span id="cb22-53"><a href="#cb22-53" aria-hidden="true" tabindex="-1"></a><span class="co"># search those instead of assuming 'title' is the bridge.</span></span>
+<span id="cb22-54"><a href="#cb22-54" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">is.null</span>(pheno_matched)) {</span>
+<span id="cb22-55"><a href="#cb22-55" aria-hidden="true" tabindex="-1"></a>  library_code <span class="ot">&lt;-</span> <span class="fu">sub</span>(<span class="st">"_.*$"</span>, <span class="st">""</span>, count_samples)  <span class="co"># e.g. "MCL1-DG_BC2..." -&gt; "MCL1-DG"</span></span>
+<span id="cb22-56"><a href="#cb22-56" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-57"><a href="#cb22-57" aria-hidden="true" tabindex="-1"></a>  candidate_fields <span class="ot">&lt;-</span> <span class="fu">intersect</span>(</span>
+<span id="cb22-58"><a href="#cb22-58" aria-hidden="true" tabindex="-1"></a>    <span class="fu">c</span>(<span class="st">"supplementary_file_1"</span>, <span class="st">"description"</span>, <span class="st">"description.1"</span>, <span class="st">"description.2"</span>,</span>
+<span id="cb22-59"><a href="#cb22-59" aria-hidden="true" tabindex="-1"></a>      <span class="st">"relation"</span>, <span class="st">"relation.1"</span>, <span class="st">"title"</span>),</span>
+<span id="cb22-60"><a href="#cb22-60" aria-hidden="true" tabindex="-1"></a>    <span class="fu">colnames</span>(pheno_data)</span>
+<span id="cb22-61"><a href="#cb22-61" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb22-62"><a href="#cb22-62" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-63"><a href="#cb22-63" aria-hidden="true" tabindex="-1"></a>  find_match_row <span class="ot">&lt;-</span> <span class="cf">function</span>(code) {</span>
+<span id="cb22-64"><a href="#cb22-64" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (field <span class="cf">in</span> candidate_fields) {</span>
+<span id="cb22-65"><a href="#cb22-65" aria-hidden="true" tabindex="-1"></a>      hit <span class="ot">&lt;-</span> <span class="fu">which</span>(<span class="fu">grepl</span>(code, pheno_data[[field]], <span class="at">fixed =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb22-66"><a href="#cb22-66" aria-hidden="true" tabindex="-1"></a>      <span class="cf">if</span> (<span class="fu">length</span>(hit) <span class="sc">==</span> <span class="dv">1</span>) <span class="fu">return</span>(hit)</span>
+<span id="cb22-67"><a href="#cb22-67" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb22-68"><a href="#cb22-68" aria-hidden="true" tabindex="-1"></a>    <span class="cn">NA_integer_</span></span>
+<span id="cb22-69"><a href="#cb22-69" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb22-70"><a href="#cb22-70" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-71"><a href="#cb22-71" aria-hidden="true" tabindex="-1"></a>  code_match_idx <span class="ot">&lt;-</span> <span class="fu">sapply</span>(library_code, find_match_row)</span>
+<span id="cb22-72"><a href="#cb22-72" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-73"><a href="#cb22-73" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">all</span>(<span class="sc">!</span><span class="fu">is.na</span>(code_match_idx))) {</span>
+<span id="cb22-74"><a href="#cb22-74" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="st">"Matched all"</span>, <span class="fu">length</span>(count_samples), <span class="st">"samples via a library code found in:"</span>,</span>
+<span id="cb22-75"><a href="#cb22-75" aria-hidden="true" tabindex="-1"></a>        <span class="fu">paste</span>(candidate_fields, <span class="at">collapse =</span> <span class="st">", "</span>), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb22-76"><a href="#cb22-76" aria-hidden="true" tabindex="-1"></a>    pheno_matched <span class="ot">&lt;-</span> pheno_data[code_match_idx, , drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb22-77"><a href="#cb22-77" aria-hidden="true" tabindex="-1"></a>    <span class="fu">rownames</span>(pheno_matched) <span class="ot">&lt;-</span> count_samples</span>
+<span id="cb22-78"><a href="#cb22-78" aria-hidden="true" tabindex="-1"></a>  } <span class="cf">else</span> {</span>
+<span id="cb22-79"><a href="#cb22-79" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="st">"Library-code search matched"</span>, <span class="fu">sum</span>(<span class="sc">!</span><span class="fu">is.na</span>(code_match_idx)), <span class="st">"of"</span>,</span>
+<span id="cb22-80"><a href="#cb22-80" aria-hidden="true" tabindex="-1"></a>        <span class="fu">length</span>(count_samples), <span class="st">"samples. Printing the actual content of"</span>,</span>
+<span id="cb22-81"><a href="#cb22-81" aria-hidden="true" tabindex="-1"></a>        <span class="st">"each candidate metadata field below so the real bridging field"</span>,</span>
+<span id="cb22-82"><a href="#cb22-82" aria-hidden="true" tabindex="-1"></a>        <span class="st">"(if any) is visible for the next fix.</span><span class="sc">\n\n</span><span class="st">"</span>)</span>
+<span id="cb22-83"><a href="#cb22-83" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> (field <span class="cf">in</span> candidate_fields) {</span>
+<span id="cb22-84"><a href="#cb22-84" aria-hidden="true" tabindex="-1"></a>      <span class="fu">cat</span>(<span class="st">"--"</span>, field, <span class="st">"--</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb22-85"><a href="#cb22-85" aria-hidden="true" tabindex="-1"></a>      <span class="fu">print</span>(pheno_data[[field]])</span>
+<span id="cb22-86"><a href="#cb22-86" aria-hidden="true" tabindex="-1"></a>      <span class="fu">cat</span>(<span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb22-87"><a href="#cb22-87" aria-hidden="true" tabindex="-1"></a>    }</span>
+<span id="cb22-88"><a href="#cb22-88" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb22-89"><a href="#cb22-89" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Matched all 12 samples via a library code found in: supplementary_file_1, description, description.1, description.2, relation, relation.1, title </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">is.null</span>(pheno_matched)) {</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"</span><span class="sc">\n</span><span class="st">Could not achieve a complete match with any strategy tried.</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"Count matrix columns: "</span>, <span class="fu">paste</span>(count_samples, <span class="at">collapse =</span> <span class="st">", "</span>), <span class="st">"</span><span class="sc">\n\n</span><span class="st">"</span>)</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"Phenotype GSM rownames:"</span>, <span class="fu">paste</span>(pheno_samples, <span class="at">collapse =</span> <span class="st">", "</span>), <span class="st">"</span><span class="sc">\n\n</span><span class="st">"</span>)</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="st">"title"</span> <span class="sc">%in%</span> <span class="fu">colnames</span>(pheno_data)) {</span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="st">"Phenotype 'title' field: "</span>, <span class="fu">paste</span>(pheno_data<span class="sc">$</span>title, <span class="at">collapse =</span> <span class="st">", "</span>), <span class="st">"</span><span class="sc">\n\n</span><span class="st">"</span>)</span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">stop</span>(<span class="fu">paste0</span>(</span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>    <span class="st">"</span><span class="sc">\n</span><span class="st">Sample identifiers between the counts file and the phenotype table "</span>,</span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a>    <span class="st">"don't line up under any of the matching strategies tried above. "</span>,</span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Compare the printed field contents above and adjust the matching "</span>,</span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>    <span class="st">"logic in this chunk to whichever field actually corresponds."</span></span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>  ))</span>
+<span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Keep genes with a minimum count in a reasonable fraction of samples</span></span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>keep_genes <span class="ot">&lt;-</span> <span class="fu">rowSums</span>(raw_counts <span class="sc">&gt;=</span> <span class="dv">10</span>) <span class="sc">&gt;=</span> (<span class="fu">ncol</span>(raw_counts) <span class="sc">*</span> <span class="fl">0.3</span>)</span>
+<span id="cb25-3"><a href="#cb25-3" aria-hidden="true" tabindex="-1"></a>filtered_counts <span class="ot">&lt;-</span> raw_counts[keep_genes, ]</span>
+<span id="cb25-4"><a href="#cb25-4" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Genes retained after low-count filtering:"</span>, <span class="fu">nrow</span>(filtered_counts), <span class="st">"of"</span>, <span class="fu">nrow</span>(raw_counts), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Genes retained after low-count filtering: 15185 of 27179 </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb27"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a><span class="co"># pheno_matched (from the previous chunk) already has rownames guaranteed</span></span>
+<span id="cb27-2"><a href="#cb27-2" aria-hidden="true" tabindex="-1"></a><span class="co"># to exactly equal colnames(filtered_counts) — filtering only drops genes</span></span>
+<span id="cb27-3"><a href="#cb27-3" aria-hidden="true" tabindex="-1"></a><span class="co"># (rows), not samples (columns), so the sample alignment carries over</span></span>
+<span id="cb27-4"><a href="#cb27-4" aria-hidden="true" tabindex="-1"></a><span class="co"># unchanged.</span></span>
+<span id="cb27-5"><a href="#cb27-5" aria-hidden="true" tabindex="-1"></a>pheno_aligned <span class="ot">&lt;-</span> pheno_matched[<span class="fu">colnames</span>(filtered_counts), , drop <span class="ot">=</span> <span class="cn">FALSE</span>]</span>
+<span id="cb27-6"><a href="#cb27-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb27-7"><a href="#cb27-7" aria-hidden="true" tabindex="-1"></a>dds <span class="ot">&lt;-</span> <span class="fu">DESeqDataSetFromMatrix</span>(</span>
+<span id="cb27-8"><a href="#cb27-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">countData =</span> <span class="fu">round</span>(filtered_counts),</span>
+<span id="cb27-9"><a href="#cb27-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">colData   =</span> pheno_aligned,</span>
+<span id="cb27-10"><a href="#cb27-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">design    =</span> <span class="sc">~</span> <span class="dv">1</span></span>
+<span id="cb27-11"><a href="#cb27-11" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb27-12"><a href="#cb27-12" aria-hidden="true" tabindex="-1"></a>vst_data <span class="ot">&lt;-</span> <span class="fu">assay</span>(<span class="fu">vst</span>(dds, <span class="at">blind =</span> <span class="cn">TRUE</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb28"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>sample_tree <span class="ot">&lt;-</span> <span class="fu">hclust</span>(<span class="fu">dist</span>(<span class="fu">t</span>(vst_data)), <span class="at">method =</span> <span class="st">"average"</span>)</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(sample_tree, <span class="at">main =</span> <span class="st">"Sample clustering (VST-normalised expression)"</span>,</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab =</span> <span class="st">""</span>, <span class="at">sub =</span> <span class="st">""</span>, <span class="at">cex =</span> <span class="fl">0.8</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="gene-coexpression-wgcna-final_files/figure-html/sample-clustering-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Hierarchical clustering of samples by expression similarity — a standard WGCNA QC step to catch outlier arrays before network construction</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Any sample splitting off far from the rest of the dendrogram at this stage would be a candidate for exclusion before network construction — a single technical outlier can distort a co-expression network more than a handful of biological replicates can, since the network is built from correlations across all samples simultaneously. Whether that’s the case here is worth reading directly from the plot rather than assumed.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb29"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>gene_variance <span class="ot">&lt;-</span> <span class="fu">apply</span>(vst_data, <span class="dv">1</span>, var)</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>n_top_genes <span class="ot">&lt;-</span> <span class="fu">min</span>(<span class="dv">5000</span>, <span class="fu">nrow</span>(vst_data))</span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>top_genes <span class="ot">&lt;-</span> <span class="fu">names</span>(<span class="fu">sort</span>(gene_variance, <span class="at">decreasing =</span> <span class="cn">TRUE</span>))[<span class="dv">1</span><span class="sc">:</span>n_top_genes]</span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>expr_matrix <span class="ot">&lt;-</span> <span class="fu">t</span>(vst_data[top_genes, ])  <span class="co"># WGCNA wants samples as rows</span></span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Proceeding with the top"</span>, n_top_genes, <span class="st">"most variable genes for network construction.</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Proceeding with the top 5000 most variable genes for network construction.</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb31"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Expression matrix for WGCNA:"</span>, <span class="fu">nrow</span>(expr_matrix), <span class="st">"samples x"</span>, <span class="fu">ncol</span>(expr_matrix), <span class="st">"genes</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Expression matrix for WGCNA: 12 samples x 5000 genes</code></pre>
+</div>
+</div>
+<p>Restricting to the most variable genes is standard WGCNA practice, not a corner cut — genes with near-constant expression across all samples contribute noise to the correlation structure without contributing information, and including all of them would only slow network construction without improving module quality.</p>
+</section>
+<section id="soft-thresholding-power-selection" class="level2">
+<h2 class="anchored" data-anchor-id="soft-thresholding-power-selection">4. Soft-Thresholding Power Selection</h2>
+<p>A plain correlation matrix treats a correlation of 0.99 and a correlation of 0.5 as different in degree but identical in kind — both are just “positive correlation.” WGCNA’s central idea is to raise correlations to a soft-thresholding power <span class="math inline">\(\beta\)</span>, which disproportionately suppresses weak correlations relative to strong ones, so the resulting network approximates the scale-free topology real biological networks are known to exhibit (a small number of highly-connected hub genes, a large number of sparsely-connected genes). Choosing <span class="math inline">\(\beta\)</span> isn’t arbitrary — it’s chosen as the smallest power that achieves a reasonable scale-free topology fit, and that has to be checked against the data, not assumed.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb33"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a>powers <span class="ot">&lt;-</span> <span class="fu">c</span>(<span class="dv">1</span><span class="sc">:</span><span class="dv">10</span>, <span class="fu">seq</span>(<span class="dv">12</span>, <span class="dv">20</span>, <span class="dv">2</span>))</span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a>sft <span class="ot">&lt;-</span> <span class="fu">pickSoftThreshold</span>(expr_matrix, <span class="at">powerVector =</span> powers, <span class="at">verbose =</span> <span class="dv">0</span>, <span class="at">networkType =</span> <span class="st">"signed"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>   Power SFT.R.sq   slope truncated.R.sq mean.k. median.k. max.k.
+1      1 0.000142  0.1080         0.9250    2610      2860   3010
+2      2 0.094200  1.2500        -0.0574    2000      2120   2620
+3      3 0.274000  1.1000         0.0731    1700      1700   2420
+4      4 0.400000  0.8480         0.2480    1490      1400   2270
+5      5 0.448000  0.6170         0.3070    1330      1210   2140
+6      6 0.423000  0.4370         0.2690    1210      1110   2030
+7      7 0.341000  0.3080         0.1680    1100      1020   1940
+8      8 0.221000  0.2020         0.0177    1010       937   1850
+9      9 0.086400  0.1120        -0.1470     937       870   1780
+10    10 0.009440  0.0351        -0.2370     870       805   1710
+11    12 0.070100 -0.0911        -0.1130     758       697   1580
+12    14 0.269000 -0.1850         0.1860     668       609   1470
+13    16 0.462000 -0.2630         0.4520     595       538   1380
+14    18 0.582000 -0.3330         0.6270     534       477   1300
+15    20 0.660000 -0.3930         0.7270     482       426   1220</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb35"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>sft<span class="sc">$</span>fitIndices</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>   Power     SFT.R.sq       slope truncated.R.sq   mean.k. median.k.   max.k.
+1      1 0.0001416365  0.10830215     0.92481262 2605.3444 2860.7232 3008.913
+2      2 0.0942215777  1.24948782    -0.05742960 2001.9116 2117.2963 2617.029
+3      3 0.2743971071  1.09566815     0.07314710 1697.1188 1695.3173 2415.883
+4      4 0.3998125328  0.84834234     0.24772016 1490.9993 1396.8414 2265.780
+5      5 0.4483492242  0.61668206     0.30669129 1334.2011 1213.7682 2141.847
+6      6 0.4228394478  0.43746604     0.26890037 1208.0001 1106.8730 2034.583
+7      7 0.3410634031  0.30761172     0.16843680 1103.0653 1017.3151 1939.632
+8      8 0.2205656271  0.20204441     0.01774625 1013.9140  937.0411 1854.370
+9      9 0.0864296090  0.11234848    -0.14697399  936.9800  869.5942 1777.026
+10    10 0.0094401849  0.03507901    -0.23744449  869.7848  804.6348 1706.315
+11    12 0.0700580468 -0.09111523    -0.11349897  757.8391  697.3734 1581.109
+12    14 0.2694459335 -0.18536303     0.18594735  668.2167  609.1265 1473.147
+13    16 0.4623514530 -0.26309061     0.45201576  594.8425  538.2744 1378.705
+14    18 0.5820742233 -0.33323667     0.62689669  533.7127  477.0941 1295.257
+15    20 0.6604888185 -0.39269656     0.72682175  482.0592  425.6919 1221.994</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb37"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="fu">par</span>(<span class="at">mfrow =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">2</span>))</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(sft<span class="sc">$</span>fitIndices[, <span class="dv">1</span>], <span class="sc">-</span><span class="fu">sign</span>(sft<span class="sc">$</span>fitIndices[, <span class="dv">3</span>]) <span class="sc">*</span> sft<span class="sc">$</span>fitIndices[, <span class="dv">2</span>],</span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab =</span> <span class="st">"Soft threshold power"</span>, <span class="at">ylab =</span> <span class="st">"Scale-free topology fit (signed R^2)"</span>,</span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a>     <span class="at">main =</span> <span class="st">"Scale-free fit"</span>, <span class="at">type =</span> <span class="st">"n"</span>)</span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(sft<span class="sc">$</span>fitIndices[, <span class="dv">1</span>], <span class="sc">-</span><span class="fu">sign</span>(sft<span class="sc">$</span>fitIndices[, <span class="dv">3</span>]) <span class="sc">*</span> sft<span class="sc">$</span>fitIndices[, <span class="dv">2</span>],</span>
+<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a>     <span class="at">labels =</span> powers, <span class="at">col =</span> <span class="st">"#3C5488"</span>, <span class="at">cex =</span> <span class="fl">0.9</span>)</span>
+<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a><span class="fu">abline</span>(<span class="at">h =</span> <span class="fl">0.85</span>, <span class="at">col =</span> <span class="st">"#E64B35"</span>, <span class="at">lty =</span> <span class="dv">2</span>)</span>
+<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb37-9"><a href="#cb37-9" aria-hidden="true" tabindex="-1"></a><span class="fu">plot</span>(sft<span class="sc">$</span>fitIndices[, <span class="dv">1</span>], sft<span class="sc">$</span>fitIndices[, <span class="dv">5</span>],</span>
+<span id="cb37-10"><a href="#cb37-10" aria-hidden="true" tabindex="-1"></a>     <span class="at">xlab =</span> <span class="st">"Soft threshold power"</span>, <span class="at">ylab =</span> <span class="st">"Mean connectivity"</span>,</span>
+<span id="cb37-11"><a href="#cb37-11" aria-hidden="true" tabindex="-1"></a>     <span class="at">main =</span> <span class="st">"Mean connectivity"</span>, <span class="at">type =</span> <span class="st">"n"</span>)</span>
+<span id="cb37-12"><a href="#cb37-12" aria-hidden="true" tabindex="-1"></a><span class="fu">text</span>(sft<span class="sc">$</span>fitIndices[, <span class="dv">1</span>], sft<span class="sc">$</span>fitIndices[, <span class="dv">5</span>],</span>
+<span id="cb37-13"><a href="#cb37-13" aria-hidden="true" tabindex="-1"></a>     <span class="at">labels =</span> powers, <span class="at">col =</span> <span class="st">"#3C5488"</span>, <span class="at">cex =</span> <span class="fl">0.9</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="gene-coexpression-wgcna-final_files/figure-html/soft-threshold-plot-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Scale-free topology model fit (left) and mean connectivity (right) across candidate soft-thresholding powers</figcaption>
+</figure>
+</div>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb38"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a><span class="fu">par</span>(<span class="at">mfrow =</span> <span class="fu">c</span>(<span class="dv">1</span>, <span class="dv">1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb39"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>chosen_power <span class="ot">&lt;-</span> sft<span class="sc">$</span>powerEstimate</span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">is.na</span>(chosen_power)) {</span>
+<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Fall back to the lowest power clearing an R^2 of 0.80 if the automatic</span></span>
+<span id="cb39-4"><a href="#cb39-4" aria-hidden="true" tabindex="-1"></a>  <span class="co"># 0.90 threshold wasn't reached by any tested power</span></span>
+<span id="cb39-5"><a href="#cb39-5" aria-hidden="true" tabindex="-1"></a>  candidates <span class="ot">&lt;-</span> sft<span class="sc">$</span>fitIndices<span class="sc">$</span>Power[</span>
+<span id="cb39-6"><a href="#cb39-6" aria-hidden="true" tabindex="-1"></a>    <span class="sc">-</span><span class="fu">sign</span>(sft<span class="sc">$</span>fitIndices<span class="sc">$</span>slope) <span class="sc">*</span> sft<span class="sc">$</span>fitIndices<span class="sc">$</span>SFT.R.sq <span class="sc">&gt;</span> <span class="fl">0.80</span></span>
+<span id="cb39-7"><a href="#cb39-7" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb39-8"><a href="#cb39-8" aria-hidden="true" tabindex="-1"></a>  chosen_power <span class="ot">&lt;-</span> <span class="cf">if</span> (<span class="fu">length</span>(candidates) <span class="sc">&gt;</span> <span class="dv">0</span>) <span class="fu">min</span>(candidates) <span class="cf">else</span> <span class="dv">6</span></span>
+<span id="cb39-9"><a href="#cb39-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"Automatic power estimate unavailable — using fallback power:"</span>, chosen_power, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb39-10"><a href="#cb39-10" aria-hidden="true" tabindex="-1"></a>} <span class="cf">else</span> {</span>
+<span id="cb39-11"><a href="#cb39-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"Selected soft-thresholding power:"</span>, chosen_power, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb39-12"><a href="#cb39-12" aria-hidden="true" tabindex="-1"></a>}</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Automatic power estimate unavailable — using fallback power: 6 </code></pre>
+</div>
+</div>
+<div class="callout callout-style-default callout-important callout-titled" title="This dataset never reaches a strong scale-free fit — worth saying plainly">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>This dataset never reaches a strong scale-free fit — worth saying plainly
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Across every power tested (1 through 20), the signed R² for scale-free topology fit peaked around 0.66 and never approached the 0.80-0.90 range WGCNA’s own documentation treats as a good fit. The automatic power estimate came back unavailable as a direct consequence, and the fallback used here (power = 6, a commonly-used default in the WGCNA literature for signed networks) is a reasonable default given the circumstances, not a criterion the data actually satisfied. The most likely explanation is sample size: this series has only 12 samples, and WGCNA’s scale-free topology assumption is asymptotic — it’s expected to hold better with larger sample sizes, and a weaker fit at n = 12 is a known, common limitation rather than a sign of a broken analysis. The modules detected below should be read with that caveat attached: they’re real co-expression structure in this dataset, but the network they’re built from is somewhat less well-justified than WGCNA’s own guidance calls for.</p>
+</div>
+</div>
+</section>
+<section id="network-construction-and-module-detection" class="level2">
+<h2 class="anchored" data-anchor-id="network-construction-and-module-detection">5. Network Construction and Module Detection</h2>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb41"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a>adjacency_matrix <span class="ot">&lt;-</span> <span class="fu">adjacency</span>(expr_matrix, <span class="at">power =</span> chosen_power, <span class="at">type =</span> <span class="st">"signed"</span>)</span>
+<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a>TOM <span class="ot">&lt;-</span> <span class="fu">TOMsimilarity</span>(adjacency_matrix, <span class="at">TOMType =</span> <span class="st">"signed"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>..connectivity..
+..matrix multiplication (system BLAS)..
+..normalization..
+..done.</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb43"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a>dissTOM <span class="ot">&lt;-</span> <span class="dv">1</span> <span class="sc">-</span> TOM</span>
+<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a>gene_tree <span class="ot">&lt;-</span> <span class="fu">hclust</span>(<span class="fu">as.dist</span>(dissTOM), <span class="at">method =</span> <span class="st">"average"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb44"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a>module_labels <span class="ot">&lt;-</span> <span class="fu">cutreeDynamic</span>(</span>
+<span id="cb44-2"><a href="#cb44-2" aria-hidden="true" tabindex="-1"></a>  <span class="at">dendro =</span> gene_tree, <span class="at">distM =</span> dissTOM,</span>
+<span id="cb44-3"><a href="#cb44-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">deepSplit =</span> <span class="dv">2</span>, <span class="at">pamRespectsDendro =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb44-4"><a href="#cb44-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">minClusterSize =</span> <span class="dv">30</span></span>
+<span id="cb44-5"><a href="#cb44-5" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code> ..cutHeight not given, setting it to 0.98  ===&gt;  99% of the (truncated) height range in dendro.
+ ..done.</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb46"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a>module_colors <span class="ot">&lt;-</span> <span class="fu">labels2colors</span>(module_labels)</span>
+<span id="cb46-2"><a href="#cb46-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-3"><a href="#cb46-3" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Modules detected:"</span>, <span class="fu">length</span>(<span class="fu">unique</span>(module_colors)), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Modules detected: 4 </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb48"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="fu">table</span>(module_colors)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>module_colors
+     blue     brown turquoise    yellow 
+      974       871      3026       129 </code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb50"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a><span class="fu">plotDendroAndColors</span>(</span>
+<span id="cb50-2"><a href="#cb50-2" aria-hidden="true" tabindex="-1"></a>  gene_tree, module_colors,</span>
+<span id="cb50-3"><a href="#cb50-3" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Module colours"</span>, <span class="at">dendroLabels =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb50-4"><a href="#cb50-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">hang =</span> <span class="fl">0.03</span>, <span class="at">addGuide =</span> <span class="cn">TRUE</span>, <span class="at">guideHang =</span> <span class="fl">0.05</span>,</span>
+<span id="cb50-5"><a href="#cb50-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">main =</span> <span class="st">"Gene clustering and module assignment"</span></span>
+<span id="cb50-6"><a href="#cb50-6" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="gene-coexpression-wgcna-final_files/figure-html/module-dendro-plot-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Gene dendrogram with module colour assignments from dynamic tree cutting</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Each colour band under the dendrogram is a module — a set of genes whose expression rises and falls together across samples closely enough that the network groups them, independent of any prior pathway annotation. Four modules were detected here: turquoise (3026 genes), blue (974), brown (871), and yellow (129) — and notably, no grey module. By WGCNA convention grey collects genes that don’t cluster clearly with anything else; every one of the 5000 genes carried into network construction was assigned to a real module, which is a reasonably clean clustering outcome given the scale-free fit caveat above.</p>
+</section>
+<section id="module-eigengenes-and-trait-correlation" class="level2">
+<h2 class="anchored" data-anchor-id="module-eigengenes-and-trait-correlation">6. Module Eigengenes and Trait Correlation</h2>
+<p>A module eigengene is the first principal component of a module’s expression — a single summary trajectory representing that whole group of genes. Correlating module eigengenes against clinical or experimental traits, rather than correlating every individual gene against every trait, is what turns a co-expression network into a trait-discovery tool: it asks which <em>coordinated programmes</em> of gene activity track a trait, rather than which individual genes happen to.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb51"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a>module_eigengenes <span class="ot">&lt;-</span> <span class="fu">moduleEigengenes</span>(expr_matrix, <span class="at">colors =</span> module_colors)<span class="sc">$</span>eigengenes</span>
+<span id="cb51-2"><a href="#cb51-2" aria-hidden="true" tabindex="-1"></a>module_eigengenes <span class="ot">&lt;-</span> <span class="fu">orderMEs</span>(module_eigengenes)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb52"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Trait extraction based on GSE60450's known characteristics fields</span></span>
+<span id="cb52-2"><a href="#cb52-2" aria-hidden="true" tabindex="-1"></a><span class="co"># (cell type: basal/luminal; developmental stage: virgin/pregnant/lactating).</span></span>
+<span id="cb52-3"><a href="#cb52-3" aria-hidden="true" tabindex="-1"></a><span class="co"># If Section 2's printed characteristics columns don't match this pattern</span></span>
+<span id="cb52-4"><a href="#cb52-4" aria-hidden="true" tabindex="-1"></a><span class="co"># exactly, this chunk is the one to adjust against the real column names.</span></span>
+<span id="cb52-5"><a href="#cb52-5" aria-hidden="true" tabindex="-1"></a>find_trait_col <span class="ot">&lt;-</span> <span class="cf">function</span>(char_cols, pheno_df, pattern) {</span>
+<span id="cb52-6"><a href="#cb52-6" aria-hidden="true" tabindex="-1"></a>  <span class="cf">if</span> (<span class="fu">length</span>(char_cols) <span class="sc">==</span> <span class="dv">0</span>) <span class="fu">return</span>(<span class="fu">character</span>(<span class="dv">0</span>))</span>
+<span id="cb52-7"><a href="#cb52-7" aria-hidden="true" tabindex="-1"></a>  char_cols[<span class="fu">sapply</span>(char_cols, <span class="cf">function</span>(c) <span class="fu">any</span>(<span class="fu">grepl</span>(pattern, pheno_df[[c]], <span class="at">ignore.case =</span> <span class="cn">TRUE</span>)))]</span>
+<span id="cb52-8"><a href="#cb52-8" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb52-9"><a href="#cb52-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb52-10"><a href="#cb52-10" aria-hidden="true" tabindex="-1"></a>cell_type_col <span class="ot">&lt;-</span> <span class="fu">find_trait_col</span>(char_cols, pheno_aligned, <span class="st">"basal|luminal"</span>)</span>
+<span id="cb52-11"><a href="#cb52-11" aria-hidden="true" tabindex="-1"></a>stage_col     <span class="ot">&lt;-</span> <span class="fu">find_trait_col</span>(char_cols, pheno_aligned, <span class="st">"virgin|pregnan|lactat"</span>)</span>
+<span id="cb52-12"><a href="#cb52-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb52-13"><a href="#cb52-13" aria-hidden="true" tabindex="-1"></a>traits_df <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(<span class="at">row.names =</span> <span class="fu">rownames</span>(pheno_aligned))</span>
+<span id="cb52-14"><a href="#cb52-14" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">length</span>(cell_type_col) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb52-15"><a href="#cb52-15" aria-hidden="true" tabindex="-1"></a>  traits_df<span class="sc">$</span>is_luminal <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(<span class="fu">grepl</span>(<span class="st">"luminal"</span>, pheno_aligned[[cell_type_col[<span class="dv">1</span>]]], <span class="at">ignore.case =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb52-16"><a href="#cb52-16" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb52-17"><a href="#cb52-17" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (<span class="fu">length</span>(stage_col) <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb52-18"><a href="#cb52-18" aria-hidden="true" tabindex="-1"></a>  stage_raw <span class="ot">&lt;-</span> pheno_aligned[[stage_col[<span class="dv">1</span>]]]</span>
+<span id="cb52-19"><a href="#cb52-19" aria-hidden="true" tabindex="-1"></a>  traits_df<span class="sc">$</span>is_pregnant  <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(<span class="fu">grepl</span>(<span class="st">"pregnan"</span>, stage_raw, <span class="at">ignore.case =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb52-20"><a href="#cb52-20" aria-hidden="true" tabindex="-1"></a>  traits_df<span class="sc">$</span>is_lactating <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(<span class="fu">grepl</span>(<span class="st">"lactat"</span>, stage_raw, <span class="at">ignore.case =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb52-21"><a href="#cb52-21" aria-hidden="true" tabindex="-1"></a>  traits_df<span class="sc">$</span>is_virgin    <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(<span class="fu">grepl</span>(<span class="st">"virgin"</span>, stage_raw, <span class="at">ignore.case =</span> <span class="cn">TRUE</span>))</span>
+<span id="cb52-22"><a href="#cb52-22" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb52-23"><a href="#cb52-23" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb52-24"><a href="#cb52-24" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Traits extracted:</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Traits extracted:</code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb54"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb54-1"><a href="#cb54-1" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(traits_df)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>                                  is_luminal is_pregnant is_lactating is_virgin
+MCL1-DG_BC2CTUACXX_ACTTGA_L002_R1          0           0            0         1
+MCL1-DH_BC2CTUACXX_CAGATC_L002_R1          0           0            0         1
+MCL1-DI_BC2CTUACXX_ACAGTG_L002_R1          0           1            0         0
+MCL1-DJ_BC2CTUACXX_CGATGT_L002_R1          0           1            0         0
+MCL1-DK_BC2CTUACXX_TTAGGC_L002_R1          0           0            1         0
+MCL1-DL_BC2CTUACXX_ATCACG_L002_R1          0           0            1         0
+MCL1-LA_BC2CTUACXX_GATCAG_L001_R1          1           0            0         1
+MCL1-LB_BC2CTUACXX_TGACCA_L001_R1          1           0            0         1
+MCL1-LC_BC2CTUACXX_GCCAAT_L001_R1          1           1            0         0
+MCL1-LD_BC2CTUACXX_GGCTAC_L001_R1          1           1            0         0
+MCL1-LE_BC2CTUACXX_TAGCTT_L001_R1          1           0            1         0
+MCL1-LF_BC2CTUACXX_CTTGTA_L001_R1          1           0            1         0</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb56"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb56-1"><a href="#cb56-1" aria-hidden="true" tabindex="-1"></a>module_trait_cor <span class="ot">&lt;-</span> WGCNA<span class="sc">::</span><span class="fu">cor</span>(module_eigengenes, traits_df, <span class="at">use =</span> <span class="st">"pairwise.complete.obs"</span>)</span>
+<span id="cb56-2"><a href="#cb56-2" aria-hidden="true" tabindex="-1"></a>n_samples <span class="ot">&lt;-</span> <span class="fu">nrow</span>(expr_matrix)</span>
+<span id="cb56-3"><a href="#cb56-3" aria-hidden="true" tabindex="-1"></a>module_trait_pval <span class="ot">&lt;-</span> <span class="fu">corPvalueStudent</span>(module_trait_cor, n_samples)</span>
+<span id="cb56-4"><a href="#cb56-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb56-5"><a href="#cb56-5" aria-hidden="true" tabindex="-1"></a>module_trait_cor</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>            is_luminal is_pregnant is_lactating   is_virgin
+MEturquoise -0.9770680 -0.04486367  -0.06199318  0.10685684
+MEyellow     0.6358697 -0.16978197  -0.48569547  0.65547744
+MEblue       0.9843972  0.02687789  -0.11807900  0.09120111
+MEbrown      0.7636848 -0.01745347   0.41246456 -0.39501109</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb58"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a>text_matrix <span class="ot">&lt;-</span> <span class="fu">matrix</span>(</span>
+<span id="cb58-2"><a href="#cb58-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">paste0</span>(<span class="fu">round</span>(module_trait_cor, <span class="dv">2</span>), <span class="st">"</span><span class="sc">\n</span><span class="st">("</span>, <span class="fu">signif</span>(module_trait_pval, <span class="dv">1</span>), <span class="st">")"</span>),</span>
+<span id="cb58-3"><a href="#cb58-3" aria-hidden="true" tabindex="-1"></a>  <span class="at">nrow =</span> <span class="fu">nrow</span>(module_trait_cor)</span>
+<span id="cb58-4"><a href="#cb58-4" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb58-5"><a href="#cb58-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb58-6"><a href="#cb58-6" aria-hidden="true" tabindex="-1"></a><span class="fu">labeledHeatmap</span>(</span>
+<span id="cb58-7"><a href="#cb58-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">Matrix =</span> module_trait_cor, <span class="at">xLabels =</span> <span class="fu">colnames</span>(traits_df),</span>
+<span id="cb58-8"><a href="#cb58-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">yLabels =</span> <span class="fu">rownames</span>(module_trait_cor), <span class="at">ySymbols =</span> <span class="fu">rownames</span>(module_trait_cor),</span>
+<span id="cb58-9"><a href="#cb58-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">colorLabels =</span> <span class="cn">FALSE</span>, <span class="at">colors =</span> <span class="fu">blueWhiteRed</span>(<span class="dv">50</span>),</span>
+<span id="cb58-10"><a href="#cb58-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">textMatrix =</span> text_matrix, <span class="at">setStdMargins =</span> <span class="cn">FALSE</span>,</span>
+<span id="cb58-11"><a href="#cb58-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">cex.text =</span> <span class="fl">0.6</span>, <span class="at">main =</span> <span class="st">"Module-Trait Relationships"</span></span>
+<span id="cb58-12"><a href="#cb58-12" aria-hidden="true" tabindex="-1"></a>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="gene-coexpression-wgcna-final_files/figure-html/module-trait-heatmap-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Module-trait correlation heatmap — cell colour is correlation strength, cell text is correlation (p-value)</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<div class="callout callout-style-default callout-note callout-titled" title="Why the pregnant-stage null result stands, unexplained away">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Why the pregnant-stage null result stands, unexplained away
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>The result here is a clean, biologically sensible pattern once read against known mammary gland biology. Cell type dominates: blue correlates with <code>is_luminal</code> at r = 0.984, and turquoise — the largest module at 3026 genes — mirrors it almost exactly in the opposite direction at r = -0.977, making it effectively the basal-identity counterpart to blue’s luminal-identity signal. Both sit near the ceiling of what a correlation can express. Developmental-stage traits are real but comparatively modest by contrast: yellow shows a moderate link to <code>is_virgin</code> (r = 0.655) and brown a moderate link to <code>is_lactating</code> (r = 0.412). <code>is_pregnant</code> stands out by having essentially no module-level signal at all — every correlation sits between -0.17 and 0.03, indistinguishable from noise. That’s worth taking at face value rather than explaining away: with cell identity already absorbing the dominant share of variance in this dataset, whatever transcriptional changes accompany the pregnant stage specifically may be too modest, or too spread across many genes without concentrating in a single coherent module, for this kind of network to isolate them as their own programme — a real limitation of a 12-sample series rather than a sign the pregnant-stage samples were mislabelled or uninformative.</p>
+</div>
+</div>
+</section>
+<section id="hub-gene-identification" class="level2">
+<h2 class="anchored" data-anchor-id="hub-gene-identification">7. Hub Gene Identification</h2>
+<p>Within a trait-correlated module, not every member gene is equally central. Intramodular connectivity (kWithin) measures how strongly a gene’s expression pattern matches the module’s overall eigengene; gene significance measures how strongly that individual gene correlates with the trait directly. Genes high on both — well-connected within the module <em>and</em> individually trait-associated — are hub gene candidates: the computational nomination for genes most likely to be mechanistically involved, as opposed to genes correlated with the trait only because they’re swept along by the module’s overall behaviour.</p>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb59"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb59-1"><a href="#cb59-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Identify the module most strongly correlated (by absolute value) with</span></span>
+<span id="cb59-2"><a href="#cb59-2" aria-hidden="true" tabindex="-1"></a><span class="co"># any trait, then find its hub genes. na.rm is essential here: a single</span></span>
+<span id="cb59-3"><a href="#cb59-3" aria-hidden="true" tabindex="-1"></a><span class="co"># NA correlation (which can happen if a module eigengene or a trait has</span></span>
+<span id="cb59-4"><a href="#cb59-4" aria-hidden="true" tabindex="-1"></a><span class="co"># near-zero variance for some subset of samples) would otherwise make</span></span>
+<span id="cb59-5"><a href="#cb59-5" aria-hidden="true" tabindex="-1"></a><span class="co"># max() itself return NA, which then makes every comparison fail silently</span></span>
+<span id="cb59-6"><a href="#cb59-6" aria-hidden="true" tabindex="-1"></a><span class="co"># and leaves no row for which() to find at all.</span></span>
+<span id="cb59-7"><a href="#cb59-7" aria-hidden="true" tabindex="-1"></a>n_na_cors <span class="ot">&lt;-</span> <span class="fu">sum</span>(<span class="fu">is.na</span>(module_trait_cor))</span>
+<span id="cb59-8"><a href="#cb59-8" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> (n_na_cors <span class="sc">&gt;</span> <span class="dv">0</span>) {</span>
+<span id="cb59-9"><a href="#cb59-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"Note:"</span>, n_na_cors, <span class="st">"module-trait correlation(s) came back NA"</span>,</span>
+<span id="cb59-10"><a href="#cb59-10" aria-hidden="true" tabindex="-1"></a>      <span class="st">"(likely a near-zero-variance module or trait) — excluded from"</span>,</span>
+<span id="cb59-11"><a href="#cb59-11" aria-hidden="true" tabindex="-1"></a>      <span class="st">"the search for the strongest correlation below.</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb59-12"><a href="#cb59-12" aria-hidden="true" tabindex="-1"></a>}</span>
+<span id="cb59-13"><a href="#cb59-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb59-14"><a href="#cb59-14" aria-hidden="true" tabindex="-1"></a>strongest_idx <span class="ot">&lt;-</span> <span class="fu">which</span>(<span class="fu">abs</span>(module_trait_cor) <span class="sc">==</span> <span class="fu">max</span>(<span class="fu">abs</span>(module_trait_cor), <span class="at">na.rm =</span> <span class="cn">TRUE</span>), <span class="at">arr.ind =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb59-15"><a href="#cb59-15" aria-hidden="true" tabindex="-1"></a>target_module <span class="ot">&lt;-</span> <span class="fu">sub</span>(<span class="st">"^ME"</span>, <span class="st">""</span>, <span class="fu">rownames</span>(module_trait_cor)[strongest_idx[<span class="dv">1</span>, <span class="dv">1</span>]])</span>
+<span id="cb59-16"><a href="#cb59-16" aria-hidden="true" tabindex="-1"></a>target_trait  <span class="ot">&lt;-</span> <span class="fu">colnames</span>(module_trait_cor)[strongest_idx[<span class="dv">1</span>, <span class="dv">2</span>]]</span>
+<span id="cb59-17"><a href="#cb59-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb59-18"><a href="#cb59-18" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Most trait-correlated module:"</span>, target_module, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Most trait-correlated module: blue </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb61"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb61-1"><a href="#cb61-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Associated trait:"</span>, target_trait, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Associated trait: is_luminal </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb63"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb63-1"><a href="#cb63-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"Correlation:"</span>, <span class="fu">round</span>(module_trait_cor[strongest_idx[<span class="dv">1</span>, , <span class="at">drop =</span> <span class="cn">FALSE</span>]], <span class="dv">3</span>), <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>Correlation: 0.984 </code></pre>
+</div>
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb65"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb65-1"><a href="#cb65-1" aria-hidden="true" tabindex="-1"></a>module_genes <span class="ot">&lt;-</span> <span class="fu">colnames</span>(expr_matrix)[module_colors <span class="sc">==</span> target_module]</span>
+<span id="cb65-2"><a href="#cb65-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb65-3"><a href="#cb65-3" aria-hidden="true" tabindex="-1"></a>kIM <span class="ot">&lt;-</span> <span class="fu">signedKME</span>(expr_matrix, module_eigengenes, <span class="at">outputColumnName =</span> <span class="st">"kME_"</span>)</span>
+<span id="cb65-4"><a href="#cb65-4" aria-hidden="true" tabindex="-1"></a>gene_significance <span class="ot">&lt;-</span> <span class="fu">as.numeric</span>(WGCNA<span class="sc">::</span><span class="fu">cor</span>(expr_matrix, traits_df[[target_trait]], <span class="at">use =</span> <span class="st">"pairwise.complete.obs"</span>))</span>
+<span id="cb65-5"><a href="#cb65-5" aria-hidden="true" tabindex="-1"></a><span class="fu">names</span>(gene_significance) <span class="ot">&lt;-</span> <span class="fu">colnames</span>(expr_matrix)</span>
+<span id="cb65-6"><a href="#cb65-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb65-7"><a href="#cb65-7" aria-hidden="true" tabindex="-1"></a>hub_table <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb65-8"><a href="#cb65-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">gene =</span> module_genes,</span>
+<span id="cb65-9"><a href="#cb65-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">kME =</span> kIM[module_genes, <span class="fu">paste0</span>(<span class="st">"kME_"</span>, target_module)],</span>
+<span id="cb65-10"><a href="#cb65-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">gene_significance =</span> gene_significance[module_genes]</span>
+<span id="cb65-11"><a href="#cb65-11" aria-hidden="true" tabindex="-1"></a>) <span class="sc">%&gt;%</span></span>
+<span id="cb65-12"><a href="#cb65-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">arrange</span>(<span class="fu">desc</span>(<span class="fu">abs</span>(kME) <span class="sc">*</span> <span class="fu">abs</span>(gene_significance)))</span>
+<span id="cb65-13"><a href="#cb65-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb65-14"><a href="#cb65-14" aria-hidden="true" tabindex="-1"></a><span class="co"># The counts file indexes genes by Entrez ID (numeric), which is exact</span></span>
+<span id="cb65-15"><a href="#cb65-15" aria-hidden="true" tabindex="-1"></a><span class="co"># but unreadable — map to gene symbols for interpretability. Not every</span></span>
+<span id="cb65-16"><a href="#cb65-16" aria-hidden="true" tabindex="-1"></a><span class="co"># Entrez ID necessarily has a current symbol mapping, so this is handled</span></span>
+<span id="cb65-17"><a href="#cb65-17" aria-hidden="true" tabindex="-1"></a><span class="co"># defensively rather than assumed to succeed for every gene.</span></span>
+<span id="cb65-18"><a href="#cb65-18" aria-hidden="true" tabindex="-1"></a>symbol_map <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(</span>
+<span id="cb65-19"><a href="#cb65-19" aria-hidden="true" tabindex="-1"></a>  AnnotationDbi<span class="sc">::</span><span class="fu">mapIds</span>(org.Mm.eg.db, <span class="at">keys =</span> hub_table<span class="sc">$</span>gene,</span>
+<span id="cb65-20"><a href="#cb65-20" aria-hidden="true" tabindex="-1"></a>                         <span class="at">column =</span> <span class="st">"SYMBOL"</span>, <span class="at">keytype =</span> <span class="st">"ENTREZID"</span>),</span>
+<span id="cb65-21"><a href="#cb65-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">error =</span> <span class="cf">function</span>(e) {</span>
+<span id="cb65-22"><a href="#cb65-22" aria-hidden="true" tabindex="-1"></a>    <span class="fu">cat</span>(<span class="st">"Gene symbol mapping failed:"</span>, <span class="fu">conditionMessage</span>(e), <span class="st">"— reporting Entrez IDs only.</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb65-23"><a href="#cb65-23" aria-hidden="true" tabindex="-1"></a>    <span class="fu">setNames</span>(<span class="fu">rep</span>(<span class="cn">NA_character_</span>, <span class="fu">nrow</span>(hub_table)), hub_table<span class="sc">$</span>gene)</span>
+<span id="cb65-24"><a href="#cb65-24" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb65-25"><a href="#cb65-25" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb65-26"><a href="#cb65-26" aria-hidden="true" tabindex="-1"></a>hub_table<span class="sc">$</span>gene_symbol <span class="ot">&lt;-</span> symbol_map[hub_table<span class="sc">$</span>gene]</span>
+<span id="cb65-27"><a href="#cb65-27" aria-hidden="true" tabindex="-1"></a>hub_table<span class="sc">$</span>gene_symbol[<span class="fu">is.na</span>(hub_table<span class="sc">$</span>gene_symbol)] <span class="ot">&lt;-</span> hub_table<span class="sc">$</span>gene[<span class="fu">is.na</span>(hub_table<span class="sc">$</span>gene_symbol)]</span>
+<span id="cb65-28"><a href="#cb65-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb65-29"><a href="#cb65-29" aria-hidden="true" tabindex="-1"></a>hub_table <span class="ot">&lt;-</span> hub_table <span class="sc">%&gt;%</span> <span class="fu">relocate</span>(gene_symbol, <span class="at">.after =</span> gene)</span>
+<span id="cb65-30"><a href="#cb65-30" aria-hidden="true" tabindex="-1"></a><span class="fu">head</span>(hub_table, <span class="dv">15</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>         gene gene_symbol       kME gene_significance
+74525   74525     Fam234b 0.9902863         0.9966024
+71943   71943      Tom1l1 0.9918488         0.9948086
+242505 242505       Rasef 0.9949508         0.9913632
+227960 227960         Gca 0.9944348         0.9908369
+72168   72168       Aifm3 0.9916797         0.9919790
+330409 330409       Cecr2 0.9888634         0.9943150
+76088   76088       Dock8 0.9919774         0.9875149
+71586   71586       Ifih1 0.9944616         0.9847624
+13136   13136        Cd55 0.9932353         0.9859449
+74464   74464      Zswim5 0.9929302         0.9862364
+56219   56219       Extl1 0.9911665         0.9855625
+269587 269587       Epb41 0.9896383         0.9867551
+14425   14425      Galnt3 0.9895574         0.9864578
+18400   18400    Slc22a18 0.9858302         0.9897403
+12521   12521        Cd82 0.9936637         0.9808370</code></pre>
+</div>
+</div>
+<div class="cell">
+<details class="code-fold">
+<summary>Show code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb67"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb67-1"><a href="#cb67-1" aria-hidden="true" tabindex="-1"></a>top_hubs <span class="ot">&lt;-</span> <span class="fu">head</span>(hub_table, <span class="dv">10</span>)</span>
+<span id="cb67-2"><a href="#cb67-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb67-3"><a href="#cb67-3" aria-hidden="true" tabindex="-1"></a><span class="fu">ggplot</span>(hub_table, <span class="fu">aes</span>(<span class="at">x =</span> kME, <span class="at">y =</span> gene_significance)) <span class="sc">+</span></span>
+<span id="cb67-4"><a href="#cb67-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">alpha =</span> <span class="fl">0.6</span>, <span class="at">color =</span> <span class="st">"#3C5488"</span>) <span class="sc">+</span></span>
+<span id="cb67-5"><a href="#cb67-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">data =</span> top_hubs, <span class="at">color =</span> <span class="st">"#E64B35"</span>, <span class="at">size =</span> <span class="fl">2.5</span>) <span class="sc">+</span></span>
+<span id="cb67-6"><a href="#cb67-6" aria-hidden="true" tabindex="-1"></a>  ggrepel<span class="sc">::</span><span class="fu">geom_text_repel</span>(</span>
+<span id="cb67-7"><a href="#cb67-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">data =</span> top_hubs, <span class="fu">aes</span>(<span class="at">label =</span> gene_symbol),</span>
+<span id="cb67-8"><a href="#cb67-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">size =</span> <span class="dv">3</span>, <span class="at">max.overlaps =</span> <span class="dv">15</span></span>
+<span id="cb67-9"><a href="#cb67-9" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb67-10"><a href="#cb67-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(</span>
+<span id="cb67-11"><a href="#cb67-11" aria-hidden="true" tabindex="-1"></a>    <span class="at">x =</span> <span class="fu">paste0</span>(<span class="st">"Intramodular connectivity (kME to "</span>, target_module, <span class="st">")"</span>),</span>
+<span id="cb67-12"><a href="#cb67-12" aria-hidden="true" tabindex="-1"></a>    <span class="at">y =</span> <span class="fu">paste0</span>(<span class="st">"Gene significance (correlation with "</span>, target_trait, <span class="st">")"</span>)</span>
+<span id="cb67-13"><a href="#cb67-13" aria-hidden="true" tabindex="-1"></a>  ) <span class="sc">+</span></span>
+<span id="cb67-14"><a href="#cb67-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>()</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div class="quarto-figure quarto-figure-center">
+<figure class="figure">
+<p><img src="gene-coexpression-wgcna-final_files/figure-html/hub-plot-1.png" class="img-fluid figure-img" width="768"></p>
+<figcaption>Intramodular connectivity vs.&nbsp;gene significance for the target module — genes in the upper right are hub gene candidates, labelled by symbol where available</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The ten genes highlighted in red are this module’s top hub gene candidates — high in both intramodular connectivity and direct trait correlation. All fifteen top-ranked genes cleared kME above 0.985 and gene significance above 0.98, an unusually tight cluster that reflects how strong the luminal-identity signal is in this dataset: Fam234b, Tom1l1, Rasef, Gca, Aifm3, Cecr2, Dock8, Ifih1, Cd55, Zswim5, Extl1, Epb41, Galnt3, Slc22a18, and Cd82. Several of these — Cd55 and Cd82 as membrane surface markers, Epb41 as a cytoskeletal/membrane-scaffold gene — are the kind of cell-surface and structural genes that would plausibly distinguish an epithelial cell identity programme, though confirming any specific one’s established role in luminal versus basal mammary identity is a literature-search question this analysis sets up rather than answers. In a real follow-up, this is precisely the gene list a wet-lab validation or a targeted literature search would start from, rather than starting from all 974 genes in the blue module or, worse, all genes in the genome.</p>
+</section>
+<section id="takeaways" class="level2">
+<h2 class="anchored" data-anchor-id="takeaways">Takeaways</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled" title="Key findings">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key findings
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>Soft-thresholding power was checked against the data, not assumed — and the honest result was that this dataset (12 samples) never reached a strong scale-free fit (R² peaked around 0.66, well short of the 0.80-0.90 WGCNA’s own guidance looks for). The fallback power of 6 is a reasonable default, not a criterion the data actually satisfied, and that limitation is attached to every result downstream of it rather than hidden.</li>
+<li>Module detection found four real modules covering all 5000 genes with none left unassigned to the grey “noise” category: turquoise (3026 genes), blue (974), brown (871), and yellow (129).</li>
+<li>Cell type dominates the module-trait structure by a wide margin: blue tracks <code>is_luminal</code> at r = 0.984, turquoise mirrors it almost exactly as the basal counterpart at r = -0.977. <code>is_virgin</code> (r = 0.655 with yellow) and <code>is_lactating</code> (r = 0.412 with brown) show real but comparatively modest signals, while <code>is_pregnant</code> showed no meaningful module-level correlation at all (every value between -0.17 and 0.03) — a genuine null result attributable to the small sample size rather than a labelling error, and reported as such rather than explained away.</li>
+<li>Hub gene identification combined two independent pieces of evidence — intramodular connectivity and direct trait correlation — and named real genes rather than opaque IDs: Fam234b, Tom1l1, Rasef, Gca, Aifm3, Cecr2, Dock8, Ifih1, Cd55, Zswim5, Extl1, Epb41, Galnt3, Slc22a18, and Cd82 all cleared kME above 0.985, an unusually tight, high-confidence cluster reflecting how dominant the luminal-identity signal is in this dataset.</li>
+<li>Two real bugs surfaced and were fixed during this analysis, not papered over: a trait-parsing regex that missed “pregnancy” by searching only for the literal word “pregnant,” and a counts file whose first column was gene length, not a thirteenth sample — either one left unfixed would have silently corrupted downstream results rather than producing a visible error.</li>
+</ul>
+</div>
+</div>
+<p>#SystemsBiology #WGCNA #GeneCoexpression #RNAseq #NetworkBiology #GenomicsRstats #Bioinformatics</p>
+
+
+</section>
+
+</main> <!-- /main -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp("https:\/\/Real-peekei\.github\.io\/articles\/");
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+<p>© Peekei</p>
+</div>   
+    <div class="nav-footer-center">
+      &nbsp;
+    </div>
+    <div class="nav-footer-right">
+<p>Built with <a href="https://quarto.org">Quarto</a></p>
+</div>
+  </div>
+</footer>
+
+
+
+
+<script src="../site_libs/quarto-html/zenscroll-min.js"></script>
+</body></html>
