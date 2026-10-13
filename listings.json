@@ -2,6 +2,7 @@
   {
     "listing": "/index.html",
     "items": [
+      "/articles/drug-synergy-prediction-final.html",
       "/articles/causal-network-inference-final.html",
       "/articles/gene-coexpression-wgcna-final.html",
       "/articles/signaling-pathway-ode-final.html",
